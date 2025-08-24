@@ -179,3 +179,23 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Secrets
+.env.*
+
+# Data (keep small samples in data/examples/)
+data/raw/
+data/interim/
+data/external/
+data/tmp/
+*.sqlite
+*.db
+
+
+# OS/Editors (usually included already by Python template)
+.DS_Store
+.vscode/
+.idea/
+
+# Keep small sample datasets
+!data/examples/
