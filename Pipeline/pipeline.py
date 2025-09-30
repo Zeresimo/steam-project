@@ -45,13 +45,41 @@ def find_partial_matches(name_dict, input_game):
     else:
         return partial_matches
 
-def confirm_match(game):
+def confirm_match(match):
+    user_input = input(f"Did you mean '{match['name']}' (AppID: {match['appid']})? (y/n): ").strip().lower()
+    while user_input not in ['y', 'n']:
+        user_input = input("Please enter 'y' for yes or 'n' for no: ").strip().lower()
+    if user_input == 'y':
+        return True
+    elif user_input == 'n':
+        return False
 
 
 print("Pipeline started...")
+selected_game = None # Variable to store the selected game
+apps_list, appid_dict, name_dict = get_gamelist() # Fetch the game list and create dictionaries for lookups
 
+print("Game list fetched and dictionaries created.")
 
-matches= [] # Initialize a list to store partial matches
+input_game = input("Enter the game name or AppID: ").strip() # Get user input for the game name or appID
+exact_match = find_exact_match(appid_dict, name_dict, input_game) # Check for an exact match
+
+if exact_match: # If an exact match is found
+
+    if confirm_match(exact_match): # Confirm the exact match with the user
+        selected_game = exact_match
+        
+else:
+    partials = find_partial_matches(name_dict, input_game) # Find partial matches if no exact match
+
+    if partials:
+
+        for candidate in partials:
+
+            if confirm_match(candidate):
+                selected_game = candidate
+                break
+
        
         
     
