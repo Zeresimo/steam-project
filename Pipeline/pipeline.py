@@ -16,7 +16,7 @@ def get_gamelist():
 
     apps_list = gamelist_data['applist']['apps'] if gamelist_data else [] # Extract the list of apps from the response
     appid_dict = {app['appid']: app for app in apps_list} # Create a dictionary mapping app names to their details
-    name_dict = {app['name'].lower(): app for app in apps_list} # Create a dictionary mapping app names to their details (case-insensitive)
+    name_dict = {app['name'].lower(): appid_dict[app['appid']] for app in apps_list} # Create a dictionary mapping app names to their details (case-insensitive)
     return apps_list, appid_dict, name_dict
 
 def find_exact_match(appid_dict, name_dict, input_game):
