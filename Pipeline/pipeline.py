@@ -1,5 +1,7 @@
 import requests
 import json
+from urllib.parse import quote
+from datetime import datetime, timedelta
 
 def get_gamelist():
     gamelist_data = None # Initialize variable to store the game list
@@ -55,11 +57,64 @@ def confirm_match(match):
         return False
 
 def get_game_reviews(appid):
+    limit = 0 # Initialize limit for pagination
+    limit_type = '' # Initialize limit type for pagination
+    encoded_cursor = "*" # Initial cursor for pagination
+
+    print("Do you want to limit by number of reviews or by days? (number/days)")
+    limit_type = input("Enter 'number' for number of reviews or 'days' for days: ").strip().lower()
+
+    while limit_type not in ['number', 'days']:
+        limit_type = input("Please enter 'number' or 'days': ").strip().lower()
+
+    if limit_type == 'number':
+        limit = input("Enter the number of reviews to fetch (e.g., 1000): ").strip()
+        while not limit.isdigit() or int(limit) <= 0 or int(limit) > 10000:
+            limit = input("Please enter a valid positive integer for the number of reviews (less than 10,000): ").strip()
+        limit = int(limit)
+        return fetch_by_number(appid, limit, encoded_cursor)
+        
+
+    elif limit_type == 'days':
+        limit = input("Enter the number of days to fetch reviews from (e.g., 30): ").strip()
+        while not limit.isdigit() or int(limit) <= 0 or int(limit) > 365:
+            limit = input("Please enter a valid positive integer for the number of days: ").strip()
+        limit = int(limit)
+        return fetch_by_days(appid, limit, encoded_cursor)
+        
+    
+def fetch_by_days(appid, limit, encoded_cursor="*"):
+    reviews = [] # List to store all fetched reviews
+    cutoff_date = datetime.now() - timedelta(days=limit) # Calculate the cutoff date since Steam reviews are timestamped in seconds
+    while True:
+        reviews_data, encoded_cursor = fetch_review_page(appid, encoded_cursor)
+        if reviews_data and reviews_data['reviews']:
+            for review in reviews_data['reviews']:
+                review_date = datetime.fromtimestamp(review['timestamp_created'])
+                if review_date >= cutoff_date:
+                    reviews.append(review)
+                    print(f"Fetched {len(reviews_data['reviews'])} reviews, total so far: {len(reviews)}")
+        else:
+            break
+    return reviews # Return all reviews if no more pages are available
+
+def fetch_by_number(appid, limit, encoded_cursor="*"):
+    reviews = [] # List to store all fetched reviews
+    while len(reviews) < limit:
+        reviews_data, encoded_cursor = fetch_review_page(appid, encoded_cursor)
+        if reviews_data and reviews_data['reviews']:
+            reviews.extend(reviews_data['reviews'])
+            print(f"Fetched {len(reviews_data['reviews'])} reviews, total so far: {len(reviews)}")
+        else:
+            break
+    return reviews[:limit] # Return only up to the specified limit        
+
+def fetch_review_page(appid, encoded_cursor):
+    url = f"https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100&cursor={encoded_cursor}"
     reviews = None # Initialize variable to store the reviews response
     reviews_data = None # Initialize variable to store the reviews data
-    url = f"https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100"
-    
-    try: # API call to get the list of all Steam apps with appIDs and names
+
+    try: # API call to get the reviews for the selected game
         reviews = requests.get(url) 
         reviews.raise_for_status()  # Ensure a successful response
         reviews_data = reviews.json() # Parse the JSON response into a dictionary
@@ -72,6 +127,10 @@ def get_game_reviews(appid):
     
     if reviews_data['success'] == 1:
         next_page = reviews_data['cursor'] # Get the cursor for the next page of reviews
+        encoded_cursor = quote(next_page) # URL-encode the cursor for safe transmission
+        return reviews_data, encoded_cursor
+    else:
+        return None, None
 
 def main():
     print("Pipeline started...")
@@ -100,9 +159,11 @@ def main():
                     break
     if selected_game:
         print(f"Selected game: {selected_game['name']} (AppID: {selected_game['appid']})")
+        reviews = get_game_reviews(selected_game['appid']) # Fetch reviews for the selected game
+        print(f"Fetched {len(reviews)} reviews for '{selected_game['name']}'.")
     else:
         print("No game selected.")
         exit(0) # Exit if no game is selected
-       
-        
+               
     
+main()
