@@ -164,9 +164,11 @@ def log_error(message, response=None): # Error logging function for possible deb
 
     
 def main():
-    path = "data"
-    os.makedirs(path, exist_ok=True)
-    os.makedirs("logs", exist_ok=True)
+    path_json = "Pipeline/data/raw"
+    path_csv = "Pipeline/data/clean"
+    os.makedirs(path_json, exist_ok=True)
+    os.makedirs(path_csv, exist_ok=True)
+    os.makedirs("Pipeline/logs", exist_ok=True)
     print("Pipeline started...")
     selected_game = None # Variable to store the selected game
     apps_list, appid_dict, name_dict = get_gamelist() # Fetch the game list and create dictionaries for lookups
@@ -197,12 +199,12 @@ def main():
         reviews = get_game_reviews(selected_game['appid']) # Fetch reviews for the selected game
         print(f"Fetched {len(reviews)} reviews for '{selected_game['name']}'.")
         filename_json = f"reviews_raw_{selected_game['appid']}_{date.today()}.json"
-        file_json = os.path.join(path, filename_json)
+        file_json = os.path.join(path_json, filename_json)
         with open(file_json, "w", encoding="utf-8") as f: # Save as json
             json.dump(reviews, f, ensure_ascii=False, indent = 4)
 
         filename_csv = f"reviews_{selected_game['appid']}_{date.today()}.csv"
-        file_csv = os.path.join(path, filename_csv)
+        file_csv = os.path.join(path_csv, filename_csv)
         with open(file_csv, "w", newline="", encoding="utf-8") as g:
             writer = csv.writer(g)
             writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
