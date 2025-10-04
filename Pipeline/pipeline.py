@@ -3,19 +3,23 @@ import json
 import csv
 from urllib.parse import quote
 from datetime import datetime, timedelta, date
+import os
 
 def get_gamelist():
     gamelist_data = None # Initialize variable to store the game list
+    message = None # Variable to store log error messages
     try: # API call to get the list of all Steam apps with appIDs and names
         gamelist = requests.get("https://api.steampowered.com/ISteamApps/GetAppList/v2/") 
         gamelist.raise_for_status()  # Ensure a successful response
         gamelist_data = gamelist.json() # Parse the JSON response into a dictionary 
 
     except requests.HTTPError as http_err: # Handle HTTP errors
-        print(f"HTTP error occurred: {http_err}")
+        message = f"HTTP error occurred: {http_err}"
+        log_error(message, gamelist_data) 
 
     except requests.RequestException as e: # Handle other request-related errors
-        print(f"Request error occurred: {e}")
+        message = f"Request error occurred: {e}"
+        log_error(message, gamelist_data) 
 
     apps_list = gamelist_data['applist']['apps'] if gamelist_data else [] # Extract the list of apps from the response
     appid_dict = {app['appid']: app for app in apps_list} # Create a dictionary mapping app names to their details
@@ -80,7 +84,7 @@ def get_game_reviews(appid):
             limit = input("Please enter a valid positive integer for the number of reviews (less than 10,000): ").strip()
 
         limit = int(limit)
-        stop_condition = lambda _, reviews, limit: len(reviews) >= limit
+        stop_condition = lambda review, reviews, limit: len(reviews) >= limit
         print(f"Fetching up to {limit} reviews...")
         return fetch_reviews(appid, limit, stop_condition)
         
@@ -119,6 +123,7 @@ def fetch_review_page(appid, encoded_cursor):
     url = f"https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100&cursor={encoded_cursor}"
     reviews = None # Initialize variable to store the reviews response
     reviews_data = None # Initialize variable to store the reviews data
+    message = None
 
     try: # API call to get the reviews for the selected game
         reviews = requests.get(url) 
@@ -126,22 +131,42 @@ def fetch_review_page(appid, encoded_cursor):
         reviews_data = reviews.json() # Parse the JSON response into a dictionary
     
     except requests.HTTPError as http_err: # Handle HTTP errors
-        print(f"HTTP error occurred: {http_err}")
+        message = f"HTTP error occurred: {http_err}"
+        log_error(message, reviews) 
 
     except requests.RequestException as e: # Handle other request-related errors
-        print(f"Request error occurred: {e}")
-    
+        message = f"Request error occurred: {e}"
+        log_error(message, reviews) 
+
     if not reviews_data or 'success' not in reviews_data or reviews_data['success'] != 1:
-        print(f"Failed to fetch reviews or no reviews available for {appid}.")
+        message = f"Failed to fetch reviews or no reviews available for {appid}."
+        log_error(message, reviews)
         return None, None
 
     elif reviews_data['success'] == 1 and reviews_data:
         next_page = reviews_data['cursor'] # Get the cursor for the next page of reviews
         encoded_cursor = quote(next_page) # URL-encode the cursor for safe transmission
         return reviews_data, encoded_cursor
-    
 
+def log_error(message, response=None): # Error logging function for possible debugging
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    formatted_message = f"[{timestamp}] {message}"
+
+    print(formatted_message)
+    if response is not None:
+        print(f"Response code: {response.status_code}")
+    
+    with open("logs/pipeline_log.txt", "a") as logfile:
+        logfile.write(f"{formatted_message}")
+        if response:
+            logfile.write(f" - Status Code: {response.status_code}")
+        logfile.write("-" * 60 + "\n")
+
+    
 def main():
+    path = "data"
+    os.makedirs(path, exist_ok=True)
+    os.makedirs("logs", exist_ok=True)
     print("Pipeline started...")
     selected_game = None # Variable to store the selected game
     apps_list, appid_dict, name_dict = get_gamelist() # Fetch the game list and create dictionaries for lookups
@@ -171,11 +196,14 @@ def main():
         print(f"Selected game: {selected_game['name']} (AppID: {selected_game['appid']})")
         reviews = get_game_reviews(selected_game['appid']) # Fetch reviews for the selected game
         print(f"Fetched {len(reviews)} reviews for '{selected_game['name']}'.")
-
-        with open(f"reviews_raw_{selected_game['appid']}_{date.today()}.json", "w", encoding="utf-8") as f: # Save as json
+        filename_json = f"reviews_raw_{selected_game['appid']}_{date.today()}.json"
+        file_json = os.path.join(path, filename_json)
+        with open(file_json, "w", encoding="utf-8") as f: # Save as json
             json.dump(reviews, f, ensure_ascii=False, indent = 4)
 
-        with open(f"reviews_{selected_game['appid']}_{date.today()}.csv", "w", newline="", encoding="utf-8") as g:
+        filename_csv = f"reviews_{selected_game['appid']}_{date.today()}.csv"
+        file_csv = os.path.join(path, filename_csv)
+        with open(file_csv, "w", newline="", encoding="utf-8") as g:
             writer = csv.writer(g)
             writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
             for x in reviews:
