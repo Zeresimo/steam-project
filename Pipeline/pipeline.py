@@ -1,7 +1,8 @@
 import requests
 import json
+import csv
 from urllib.parse import quote
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 def get_gamelist():
     gamelist_data = None # Initialize variable to store the game list
@@ -23,16 +24,22 @@ def get_gamelist():
 
 def find_exact_match(appid_dict, name_dict, input_game):
     input_game = input_game.strip() # Remove leading/trailing whitespace
+
     if input_game.isdigit(): # Check if the input is numeric (appID)
-        appid = int(input_game) 
+        appid = int(input_game)
+
         if appid in appid_dict: 
             return appid_dict[appid] 
+        
         else:
             return None 
+        
     else: # Input is treated as a game name
         input_game_lower = input_game.lower() # Convert input to lowercase for case-insensitive comparison
+
         if input_game_lower in name_dict: 
             return name_dict[input_game_lower] 
+        
         else:
             return None 
             
@@ -159,10 +166,27 @@ def main():
                 if confirm_match(candidate):
                     selected_game = candidate
                     break
+
     if selected_game:
         print(f"Selected game: {selected_game['name']} (AppID: {selected_game['appid']})")
         reviews = get_game_reviews(selected_game['appid']) # Fetch reviews for the selected game
         print(f"Fetched {len(reviews)} reviews for '{selected_game['name']}'.")
+
+        with open(f"reviews_raw_{selected_game['appid']}_{date.today()}.json", "w", encoding="utf-8") as f: # Save as json
+            json.dump(reviews, f, ensure_ascii=False, indent = 4)
+
+        with open(f"reviews_{selected_game['appid']}_{date.today()}.csv", "w", newline="", encoding="utf-8") as g:
+            writer = csv.writer(g)
+            writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
+            for x in reviews:
+                writer.writerow([
+                    x.get("review", ""),
+                    x.get("voted_up", ""),
+                    x.get("timestamp_created", ""),
+                    x.get("author", {}).get("playtime_forever", ""),
+                    x.get("author", {}).get("num_reviews", "")
+                ])
+
     else:
         print("No game selected.")
         exit(0) # Exit if no game is selected
