@@ -59,7 +59,6 @@ def confirm_match(match):
 def get_game_reviews(appid):
     limit = 0 # Initialize limit for pagination
     limit_type = '' # Initialize limit type for pagination
-    encoded_cursor = "*" # Initial cursor for pagination
 
     print("Do you want to limit by number of reviews or by days? (number/days)")
     limit_type = input("Enter 'number' for number of reviews or 'days' for days: ").strip().lower()
@@ -69,45 +68,45 @@ def get_game_reviews(appid):
 
     if limit_type == 'number':
         limit = input("Enter the number of reviews to fetch (e.g., 1000): ").strip()
+
         while not limit.isdigit() or int(limit) <= 0 or int(limit) > 10000:
             limit = input("Please enter a valid positive integer for the number of reviews (less than 10,000): ").strip()
-        limit = int(limit)
-        return fetch_by_number(appid, limit, encoded_cursor)
-        
 
+        limit = int(limit)
+        stop_condition = lambda _, reviews, limit: len(reviews) >= limit
+        print(f"Fetching up to {limit} reviews...")
+        return fetch_reviews(appid, limit, stop_condition)
+        
     elif limit_type == 'days':
         limit = input("Enter the number of days to fetch reviews from (e.g., 30): ").strip()
+
         while not limit.isdigit() or int(limit) <= 0 or int(limit) > 365:
             limit = input("Please enter a valid positive integer for the number of days: ").strip()
-        limit = int(limit)
-        return fetch_by_days(appid, limit, encoded_cursor)
-        
-    
-def fetch_by_days(appid, limit, encoded_cursor="*"):
-    reviews = [] # List to store all fetched reviews
-    cutoff_date = datetime.now() - timedelta(days=limit) # Calculate the cutoff date since Steam reviews are timestamped in seconds
-    while True:
-        reviews_data, encoded_cursor = fetch_review_page(appid, encoded_cursor)
-        if reviews_data and reviews_data['reviews']:
-            for review in reviews_data['reviews']:
-                review_date = datetime.fromtimestamp(review['timestamp_created'])
-                if review_date >= cutoff_date:
-                    reviews.append(review)
-                    print(f"Fetched {len(reviews_data['reviews'])} reviews, total so far: {len(reviews)}")
-        else:
-            break
-    return reviews # Return all reviews if no more pages are available
 
-def fetch_by_number(appid, limit, encoded_cursor="*"):
+        limit = int(limit)
+        cutoff_date = datetime.now() - timedelta(days=limit)
+        stop_condition = lambda review, _, __: datetime.fromtimestamp(review['timestamp_created']) < cutoff_date
+        print(f"Fetching reviews from the last {limit} days...")
+        return fetch_reviews(appid, limit, stop_condition)
+          
+def fetch_reviews(appid, limit, stop_condition):
     reviews = [] # List to store all fetched reviews
-    while len(reviews) < limit:
-        reviews_data, encoded_cursor = fetch_review_page(appid, encoded_cursor)
-        if reviews_data and reviews_data['reviews']:
-            reviews.extend(reviews_data['reviews'])
-            print(f"Fetched {len(reviews_data['reviews'])} reviews, total so far: {len(reviews)}")
-        else:
+    encoded_cursor = "*" # Initial cursor for pagination
+    
+    while True:
+        page, encoded_cursor = fetch_review_page(appid, encoded_cursor)
+
+        if not page or not page['reviews']:
             break
-    return reviews[:limit] # Return only up to the specified limit        
+
+        for review in page['reviews']:
+            if stop_condition(review, reviews, limit):
+                return reviews
+            
+            else:
+                reviews.append(review)
+
+    return reviews
 
 def fetch_review_page(appid, encoded_cursor):
     url = f"https://store.steampowered.com/appreviews/{appid}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100&cursor={encoded_cursor}"
@@ -125,12 +124,15 @@ def fetch_review_page(appid, encoded_cursor):
     except requests.RequestException as e: # Handle other request-related errors
         print(f"Request error occurred: {e}")
     
-    if reviews_data['success'] == 1:
+    if not reviews_data or 'success' not in reviews_data or reviews_data['success'] != 1:
+        print(f"Failed to fetch reviews or no reviews available for {appid}.")
+        return None, None
+
+    elif reviews_data['success'] == 1 and reviews_data:
         next_page = reviews_data['cursor'] # Get the cursor for the next page of reviews
         encoded_cursor = quote(next_page) # URL-encode the cursor for safe transmission
         return reviews_data, encoded_cursor
-    else:
-        return None, None
+    
 
 def main():
     print("Pipeline started...")
