@@ -1,6 +1,7 @@
 import requests
 import json
 import csv
+from math import ceil
 from urllib.parse import quote
 from datetime import datetime, timedelta, date
 import os
@@ -26,27 +27,18 @@ def get_gamelist():
     name_dict = {app['name'].lower(): appid_dict[app['appid']] for app in apps_list} # Create a dictionary mapping app names to their details (case-insensitive)
     return apps_list, appid_dict, name_dict
 
-def find_exact_match(appid_dict, name_dict, input_game):
+def find_exact_matches(appid_dict, name_dict, input_game):
     input_game = input_game.strip() # Remove leading/trailing whitespace
 
     if input_game.isdigit(): # Check if the input is numeric (appID)
         appid = int(input_game)
-
-        if appid in appid_dict: 
-            return appid_dict[appid] 
-        
-        else:
-            return None 
+        return [appid_dict[appid]] if appid in appid_dict else None 
         
     else: # Input is treated as a game name
         input_game_lower = input_game.lower() # Convert input to lowercase for case-insensitive comparison
-
-        if input_game_lower in name_dict: 
-            return name_dict[input_game_lower] 
-        
-        else:
-            return None 
-            
+        matches = [app for app in name_dict.values() if app['name'].strip().lower() == input_game_lower]
+        return matches if matches else None
+               
 def find_partial_matches(name_dict, input_game):
     input_game = input_game.strip().lower() # Normalize input for case-insensitive comparison
     partial_matches = [] # Initialize a list to store partial matches
@@ -58,10 +50,64 @@ def find_partial_matches(name_dict, input_game):
     else:
         return partial_matches
 
+def display_matches(matches, max_display=5, interactive=False):
+    if not matches:
+        if interactive:
+            print("No matches found")
+        return None
+    total_matches = len(matches)
+    total_pages = ceil(total_matches / max_display)
+    current_page = 0
+    while current_page < total_pages:
+        start_index = current_page * max_display
+        end_index = min(start_index + max_display, total_matches)  
+        
+        if interactive:
+            print(f"Page {current_page + 1} of {total_pages} | Showing matches {start_index+1} to {end_index} of {total_matches}")
+            for i in range(start_index, end_index):
+                match = matches[i]
+                print(f"{i+1}. {match['name']} - appid: {match['appid']}.")
+        else:
+            return matches
+        
+        menu_choice = input("Enter number to select a game, " \
+        "Press Enter to see next matches, or 'q' to quit")
+
+        if menu_choice.lower() == 'q':
+            break
+        elif menu_choice.isdigit():
+            choice = int(menu_choice)
+            if start_index + 1 <= choice <= end_index:
+                selected = choice - 1
+                return matches[selected]
+            else:
+                print("Number out of range, please try again.")
+        elif menu_choice == '':
+            current_page += 1
+        
+        else:
+            print("Invalid input, please enter a number, Enter, or 'q'.")
+
+        if end_index == total_matches:
+            break
+    return None
+
+def select_game(matches):
+    if not matches:
+        return None
+    
+    if len(matches) == 1:
+        return matches[0] if confirm_match(matches[0]) else None
+    else:
+        selected = display_matches(matches, 5, True)
+        return selected if selected and confirm_match(selected) else None
+
 def confirm_match(match):
+    if not match:
+        return None
     user_input = input(f"Did you mean '{match['name']}' (AppID: {match['appid']})? (y/n): ").strip().lower()
-    while user_input not in ['y', 'n']:
-        user_input = input("Please enter 'y' for yes or 'n' for no: ").strip().lower()
+    while user_input not in ['y', 'n', 'q']:
+        user_input = input("Please enter 'y' or 'n' or 'q': ").strip().lower()
     if user_input == 'y':
         return True
     elif user_input == 'n':
@@ -148,7 +194,37 @@ def fetch_review_page(appid, encoded_cursor):
         encoded_cursor = quote(next_page) # URL-encode the cursor for safe transmission
         return reviews_data, encoded_cursor
 
+def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
+    raw_path = os.path.join(base_path, "raw")
+    clean_path = os.path.join(base_path, "clean")
+    os.makedirs(raw_path, exist_ok=True)
+    os.makedirs(clean_path, exist_ok=True)
+
+    filename_json = f"reviews_raw_{selected_game['appid']}_{date.today()}.json"
+    file_json = os.path.join(raw_path, filename_json)
+    with open(file_json, "w", encoding="utf-8") as f: # Save as json
+        json.dump(reviews, f, ensure_ascii=False, indent = 4)
+
+    filename_csv = f"reviews_{selected_game['appid']}_{date.today()}.csv"
+    file_csv = os.path.join(clean_path, filename_csv)
+    with open(file_csv, "w", newline="", encoding="utf-8") as g:
+        writer = csv.writer(g)
+        writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
+        for x in reviews:
+            writer.writerow([
+                x.get("review", ""),
+                x.get("voted_up", ""),
+                x.get("timestamp_created", ""),
+                x.get("author", {}).get("playtime_forever", ""),
+                x.get("author", {}).get("num_reviews", "")
+            ])
+
 def log_error(message, response=None): # Error logging function for possible debugging
+    base_path = "Pipeline/logs/"
+    os.makedirs(base_path, exist_ok=True)
+    filename =  "pipeline_log.txt"
+    log_path = os.path.join(base_path, filename)
+
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     formatted_message = f"[{timestamp}] {message}"
 
@@ -156,7 +232,7 @@ def log_error(message, response=None): # Error logging function for possible deb
     if response is not None:
         print(f"Response code: {response.status_code}")
     
-    with open("logs/pipeline_log.txt", "a") as logfile:
+    with open(log_path, "a") as logfile:
         logfile.write(f"{formatted_message}")
         if response:
             logfile.write(f" - Status Code: {response.status_code}")
@@ -164,58 +240,24 @@ def log_error(message, response=None): # Error logging function for possible deb
 
     
 def main():
-    path_json = "Pipeline/data/raw"
-    path_csv = "Pipeline/data/clean"
-    os.makedirs(path_json, exist_ok=True)
-    os.makedirs(path_csv, exist_ok=True)
-    os.makedirs("Pipeline/logs", exist_ok=True)
     print("Pipeline started...")
     selected_game = None # Variable to store the selected game
     apps_list, appid_dict, name_dict = get_gamelist() # Fetch the game list and create dictionaries for lookups
-
-    print("Game list fetched and dictionaries created.")
-
+    
     input_game = input("Enter the game name or AppID: ").strip() # Get user input for the game name or appID
-    exact_match = find_exact_match(appid_dict, name_dict, input_game) # Check for an exact match
+    
+    exact_match = find_exact_matches(appid_dict, name_dict, input_game) # Check for an exact match
+    selected_game = select_game(exact_match)
 
-    if exact_match: # If an exact match is found
-
-        if confirm_match(exact_match): # Confirm the exact match with the user
-            selected_game = exact_match
-            
-    else:
+    if not selected_game:
         partials = find_partial_matches(name_dict, input_game) # Find partial matches if no exact match
-
-        if partials:
-
-            for candidate in partials:
-
-                if confirm_match(candidate):
-                    selected_game = candidate
-                    break
+        selected_game = select_game(partials)
 
     if selected_game:
         print(f"Selected game: {selected_game['name']} (AppID: {selected_game['appid']})")
         reviews = get_game_reviews(selected_game['appid']) # Fetch reviews for the selected game
         print(f"Fetched {len(reviews)} reviews for '{selected_game['name']}'.")
-        filename_json = f"reviews_raw_{selected_game['appid']}_{date.today()}.json"
-        file_json = os.path.join(path_json, filename_json)
-        with open(file_json, "w", encoding="utf-8") as f: # Save as json
-            json.dump(reviews, f, ensure_ascii=False, indent = 4)
-
-        filename_csv = f"reviews_{selected_game['appid']}_{date.today()}.csv"
-        file_csv = os.path.join(path_csv, filename_csv)
-        with open(file_csv, "w", newline="", encoding="utf-8") as g:
-            writer = csv.writer(g)
-            writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
-            for x in reviews:
-                writer.writerow([
-                    x.get("review", ""),
-                    x.get("voted_up", ""),
-                    x.get("timestamp_created", ""),
-                    x.get("author", {}).get("playtime_forever", ""),
-                    x.get("author", {}).get("num_reviews", "")
-                ])
+        save_reviews(selected_game, reviews)
 
     else:
         print("No game selected.")
