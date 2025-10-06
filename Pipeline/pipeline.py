@@ -16,11 +16,11 @@ def get_gamelist():
 
     except requests.HTTPError as http_err: # Handle HTTP errors
         message = f"HTTP error occurred: {http_err}"
-        log_error(message, gamelist_data) 
+        log_error(message, gamelist) 
 
     except requests.RequestException as e: # Handle other request-related errors
         message = f"Request error occurred: {e}"
-        log_error(message, gamelist_data) 
+        log_error(message, gamelist) 
 
     apps_list = gamelist_data['applist']['apps'] if gamelist_data else [] # Extract the list of apps from the response
     appid_dict = {app['appid']: app for app in apps_list} # Create a dictionary mapping app names to their details
@@ -71,7 +71,7 @@ def display_matches(matches, max_display=5, interactive=False):
             return matches
         
         menu_choice = input("Enter number to select a game, " \
-        "Press Enter to see next matches, or 'q' to quit")
+        "Press Enter to see next matches, or 'q' to quit: ")
 
         if menu_choice.lower() == 'q':
             break
@@ -195,18 +195,26 @@ def fetch_review_page(appid, encoded_cursor):
         return reviews_data, encoded_cursor
 
 def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
+    if not reviews:
+        print("No reviews fetched - skipping saving step")
+        return
+    
     raw_path = os.path.join(base_path, "raw")
     clean_path = os.path.join(base_path, "clean")
     os.makedirs(raw_path, exist_ok=True)
     os.makedirs(clean_path, exist_ok=True)
 
-    filename_json = f"reviews_raw_{selected_game['appid']}_{date.today()}.json"
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    filename_json = f"reviews_raw_{selected_game['appid']}_{timestamp}.json"
     file_json = os.path.join(raw_path, filename_json)
+    
+    filename_csv = f"reviews_{selected_game['appid']}_{timestamp}.csv"
+    file_csv = os.path.join(clean_path, filename_csv)
+
     with open(file_json, "w", encoding="utf-8") as f: # Save as json
         json.dump(reviews, f, ensure_ascii=False, indent = 4)
-
-    filename_csv = f"reviews_{selected_game['appid']}_{date.today()}.csv"
-    file_csv = os.path.join(clean_path, filename_csv)
+    
     with open(file_csv, "w", newline="", encoding="utf-8") as g:
         writer = csv.writer(g)
         writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
@@ -218,6 +226,7 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
                 x.get("author", {}).get("playtime_forever", ""),
                 x.get("author", {}).get("num_reviews", "")
             ])
+    print(f"Reviews saved to: \n {file_json} \n {file_csv}")
 
 def log_error(message, response=None): # Error logging function for possible debugging
     base_path = "Pipeline/logs/"
@@ -230,13 +239,13 @@ def log_error(message, response=None): # Error logging function for possible deb
 
     print(formatted_message)
     if response is not None:
-        print(f"Response code: {response.status_code}")
+        print(f"Response code: {response.status_code} \n")
     
     with open(log_path, "a") as logfile:
         logfile.write(f"{formatted_message}")
         if response:
-            logfile.write(f" - Status Code: {response.status_code}")
-        logfile.write("-" * 60 + "\n")
+            logfile.write(f" - Status Code: {response.status_code} \n")
+        logfile.write("\n" + "-" * 60 + "\n")
 
     
 def main():
