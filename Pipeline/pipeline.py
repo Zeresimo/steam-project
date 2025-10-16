@@ -231,7 +231,7 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
 def log_error(message, response=None): # Error logging function for possible debugging
     base_path = "Pipeline/logs/"
     os.makedirs(base_path, exist_ok=True)
-    filename =  "pipeline_log.txt"
+    filename =  "pipeline_error_log.txt"
     log_path = os.path.join(base_path, filename)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
