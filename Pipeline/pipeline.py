@@ -217,9 +217,10 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
     
     with open(file_csv, "w", newline="", encoding="utf-8") as g:
         writer = csv.writer(g)
-        writer.writerow(["review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
+        writer.writerow(["appid", "review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
         for x in reviews:
             writer.writerow([
+                selected_game['appid'],
                 x.get("review", ""),
                 x.get("voted_up", ""),
                 x.get("timestamp_created", ""),
