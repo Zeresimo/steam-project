@@ -274,4 +274,5 @@ def main():
         exit(0) # Exit if no game is selected
                
     
-main()
+if __name__ == "__main__":
+    main()

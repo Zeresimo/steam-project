@@ -18,10 +18,8 @@ def get_latest_csv(base_path = "Pipeline/data/clean"):
 
     return latest_file
 
-def log_error(message): # Error logging function for possible debugging
-    base_path = "Pipeline/logs/"
+def log_error(message, base_path = "Pipeline/logs/", filename =  "process_error_log.txt"): # Error logging function for possible debugging
     os.makedirs(base_path, exist_ok=True)
-    filename =  "process_error_log.txt"
     log_path = os.path.join(base_path, filename)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -32,10 +30,8 @@ def log_error(message): # Error logging function for possible debugging
     with open(log_path, "a") as logfile:
         logfile.write(f"{formatted_message}\n")
         
-def log_info(message): # Logging function for general information
-    base_path = "Pipeline/logs/"
+def log_info(message, base_path = "Pipeline/logs/", filename =  "process_info_log.txt"): # Logging function for general information
     os.makedirs(base_path, exist_ok=True)
-    filename =  "process_info_log.txt"
     log_path = os.path.join(base_path, filename)
 
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -44,6 +40,7 @@ def log_info(message): # Logging function for general information
     print(formatted_message)
     
     with open(log_path, "a") as logfile:
+        print(f"writing to log file at: {log_path}")
         logfile.write(f"{formatted_message}\n")
  
 def check_dataframe(df):
@@ -76,6 +73,8 @@ def clean_reviews(text):
         return None
     
     else:
+        text = text.replace("’", "'").replace("‘", "'").replace("“", '"').replace("”", '"') # Standardize quotes
+        
         text = re.sub(r'http\S+|www\S+|https\S+', '', text, flags=re.MULTILINE) # Remove URLs
 
         text = re.sub(r"[^A-Za-z0-9\s']+", '', text) # Remove special characters
@@ -106,3 +105,7 @@ def main():
 
     temp_df.to_csv(cleaned_file_path, index=False)
     log_info(f"Cleaned data saved to: {cleaned_file_path}")
+    return 0
+
+if __name__ == "__main__":
+    main()

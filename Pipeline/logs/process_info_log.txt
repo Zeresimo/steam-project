@@ -1,0 +1,62 @@
+[2025-10-20 20:04:11] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251020_200240.csv
+[2025-10-20 20:04:11] Processing file: Pipeline/data/clean\reviews_1903340_20251020_200240.csv
+[2025-10-20 20:04:12] Data Frame contains all required columns.
+[2025-10-20 20:04:12] Data Frame cleaned. Remaining rows: 854
+[2025-10-20 20:04:12] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251020_200240.csv
+[2025-10-27 20:36:18] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-27 20:36:18] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-27 20:36:18] Data Frame contains all required columns.
+[2025-10-27 20:36:18] Data Frame cleaned. Remaining rows: 886
+[2025-10-27 20:36:18] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:18] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:18] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:18] Data Frame contains all required columns.
+[2025-10-28 23:57:18] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:57:18] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:20] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:20] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:20] Data Frame contains all required columns.
+[2025-10-28 23:57:20] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:57:20] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:22] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:22] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:22] Data Frame contains all required columns.
+[2025-10-28 23:57:22] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:57:22] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:24] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:24] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:57:24] Data Frame contains all required columns.
+[2025-10-28 23:57:24] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:57:24] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:20] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:20] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:20] Data Frame contains all required columns.
+[2025-10-28 23:59:20] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:59:20] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:59] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:59] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:59] Data Frame contains all required columns.
+[2025-10-28 23:59:59] Data Frame cleaned. Remaining rows: 886
+[2025-10-28 23:59:59] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-28 23:59:59] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:01:25] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-29 00:01:25] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-29 00:01:25] Data Frame contains all required columns.
+[2025-10-29 00:01:25] Data Frame cleaned. Remaining rows: 886
+[2025-10-29 00:01:25] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:01:25] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:06:14] Latest CSV file found: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-29 00:06:14] Processing file: Pipeline/data/clean\reviews_1903340_20251027_203609.csv
+[2025-10-29 00:06:14] Data Frame contains all required columns.
+[2025-10-29 00:06:14] Data Frame cleaned. Remaining rows: 886
+[2025-10-29 00:06:14] Cleaned data saved to: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:06:14] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:34:01] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 00:43:23] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 09:40:03] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 09:40:09] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 09:40:13] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 09:55:20] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 09:56:25] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 10:28:35] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
+[2025-10-29 10:30:20] Latest CSV file found: Pipeline/data/processed\cleaned_reviews_1903340_20251027_203609.csv
