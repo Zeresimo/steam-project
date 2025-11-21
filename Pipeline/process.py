@@ -3,56 +3,35 @@ import csv
 import os
 import glob
 from datetime import datetime, timedelta, date
+from utils.logger import log
 import re
+
+log_path = "Pipeline/logs/"
+filename = "process_log.txt"
 
 def get_latest_csv(base_path = "Pipeline/data/clean"):
     files = glob.glob(os.path.join(base_path, "*.csv")) # Get all CSV files in the directory
 
     if not files:
-        log_error("No CSV files found in the directory.")
+        log("No CSV files found in the directory.", level = "INFO", base_path = log_path, filename = filename)
         return None
     
     else:
         latest_file = max(files, key=os.path.getmtime) # Get the most recently modified file
-        log_info(f"Latest CSV file found: {latest_file}")
+        log(f"Latest CSV file found: {latest_file}", level = "INFO", base_path = log_path, filename = filename)
 
     return latest_file
 
-def log_error(message, base_path = "Pipeline/logs/", filename =  "process_error_log.txt"): # Error logging function for possible debugging
-    os.makedirs(base_path, exist_ok=True)
-    log_path = os.path.join(base_path, filename)
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    formatted_message = f"[{timestamp}] {message}"
-
-    print(formatted_message)
-    
-    with open(log_path, "a") as logfile:
-        logfile.write(f"{formatted_message}\n")
-        
-def log_info(message, base_path = "Pipeline/logs/", filename =  "process_info_log.txt"): # Logging function for general information
-    os.makedirs(base_path, exist_ok=True)
-    log_path = os.path.join(base_path, filename)
-
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    formatted_message = f"[{timestamp}] {message}"
-
-    print(formatted_message)
-    
-    with open(log_path, "a") as logfile:
-        print(f"writing to log file at: {log_path}")
-        logfile.write(f"{formatted_message}\n")
- 
 def check_dataframe(df):
-    required_columns = ['review', 'appid', 'voted_up']
+    required_columns = ['review', 'id', 'voted_up']
 
     if not all(col in df.columns for col in required_columns): # Check if all required columns are present
         missing_cols = [col for col in required_columns if col not in df.columns] # Identify missing columns
-        log_error(f"Data Frame is missing required columns: {missing_cols}") # Log error if columns are missing
+        log(f"Data Frame is missing required columns: {missing_cols}", level = "ERROR", base_path = log_path, filename = filename) # Log error if columns are missing
         return False
     
     else:
-        log_info("Data Frame contains all required columns.")
+        log("Data Frame contains all required columns.", level = "INFO", base_path = log_path, filename = filename)
         return True
 
 def clean_rows(df):
@@ -60,16 +39,16 @@ def clean_rows(df):
         full_df = df.dropna(subset = ['review']) # Drop rows with any missing values
         full_df = full_df.drop_duplicates() # Remove duplicate rows
         full_df = full_df[full_df['review'].str.strip().astype(bool)] # Remove rows with empty 'review' field
-        log_info(f"Data Frame cleaned. Remaining rows: {len(full_df)}")
+        log(f"Data Frame cleaned. Remaining rows: {len(full_df)}", level = "INFO", base_path = log_path, filename = filename)
         return full_df
     
     else:
-        log_error("Data Frame check failed. Cleaning process aborted.")
+        log("Data Frame check failed. Cleaning process aborted.", level = "ERROR", base_path = log_path, filename = filename)
         return None
     
 def clean_reviews(text):
     if not isinstance(text, str):
-        log_info("Clean review: Input is not a string.") # Log info if input is not a string as it's not really an error
+        log("Clean review: Input is not a string.", level = "INFO", base_path = log_path, filename = filename) # Log info if input is not a string as it's not really an error
         return None
     
     else:
@@ -88,23 +67,37 @@ def main():
     latest_file = get_latest_csv()
 
     if latest_file is None:
+        log("No CSV files to process. Exiting.", level = "ERROR", base_path = log_path, filename = filename)
         return 1 # Exit if no file found
     
-    log_info(f"Processing file: {latest_file}")
+    cleaned_file_path = os.path.join("Pipeline/data/processed", f"cleaned_{os.path.basename(latest_file)}")
+    
+    log(f"Processing file: {latest_file}", level = "INFO", base_path = log_path, filename = filename)
 
-    unclean_df = pd.read_csv(latest_file)
+    try:
+        unclean_df = pd.read_csv(latest_file)
+        log("CSV file read successfully.", level = "INFO", base_path = log_path, filename = filename)
+    except Exception as e:
+        log(f"Error reading CSV file: {e}", level = "ERROR", base_path = log_path, filename = filename)
+        return 1 # Exit if reading fails
 
     temp_df = clean_rows(unclean_df)
 
     if temp_df is None:
+        log("Data cleaning failed. Exiting process.", level = "ERROR", base_path = log_path, filename = filename)
         return 1 # Exit if cleaning failed
     
-    temp_df['review'] = temp_df['review'].apply(clean_reviews)
+    try:
+        log("Starting review text cleaning.", level = "INFO", base_path = log_path, filename = filename)
+        temp_df['review'] = temp_df['review'].apply(clean_reviews)
+        log("Review text cleaning completed.", level = "INFO", base_path = log_path, filename = filename)
+        temp_df.to_csv(cleaned_file_path, index=False)
+        log(f"Cleaned data saved to: {cleaned_file_path}", level = "INFO", base_path = log_path, filename = filename)
 
-    cleaned_file_path = os.path.join("Pipeline/data/processed", f"cleaned_{os.path.basename(latest_file)}")
+    except Exception as e:
+        log(f"Error during review text cleaning: {e}", level = "ERROR", base_path = log_path, filename = filename)
+        return 1 # Exit if cleaning fails
 
-    temp_df.to_csv(cleaned_file_path, index=False)
-    log_info(f"Cleaned data saved to: {cleaned_file_path}")
     return 0
 
 if __name__ == "__main__":
