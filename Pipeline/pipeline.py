@@ -4,13 +4,27 @@ import csv
 from math import ceil
 from urllib.parse import quote
 from datetime import datetime, timedelta, date
-from utils.logger import log
+import utils.utils as utils
 import os
 
-def search_games(query, base_path="Pipeline/logs/", filename="pipeline_log.txt"):
+LOG = {
+    "base_path": "Pipeline/logs/",
+    "filename": "pipeline_log.txt"
+}
+
+paths = [
+    "Pipeline/data/raw",
+    "Pipeline/data/clean",
+    "Pipeline/data/processed",
+    "Pipeline/logs/"
+]
+
+utils.ensure_directory(paths)
+
+def search_games(query):
 
     if not query or not isinstance(query, str):
-        log("Invalid query provided to search_games.", level="ERROR", base_path=base_path, filename=filename)
+        utils.log("Invalid query provided to search_games.", level="ERROR", **LOG)
         return None
     
     url = "https://store.steampowered.com/api/storesearch/"
@@ -24,62 +38,41 @@ def search_games(query, base_path="Pipeline/logs/", filename="pipeline_log.txt")
         response = requests.get(url, params=params, timeout=10)
 
         if response.status_code != 200:
-            log(f"Failed to fetch game list. Status code: {response.status_code}", 
-                level="ERROR", 
-                base_path=base_path, 
-                filename=filename)
+            utils.log(f"Failed to fetch game list. Status code: {response.status_code}", level="ERROR", **LOG)
             
             return None
         
         try:
             data = response.json()
-            log(f"Game search successful for query: {query}", 
-                level="INFO", 
-                base_path=base_path, 
-                filename=filename)
+            utils.log(f"Game search successful for query: {query}", level="INFO", **LOG)
             
         except Exception as e:
-            log(f"Error parsing JSON response: {e}", 
-                level="ERROR", 
-                base_path=base_path, 
-                filename=filename)
+            utils.log(f"Error parsing JSON response: {e}", level="ERROR", **LOG)
             return None
         
         if 'items' not in data:
-            log(f"No 'items' key in response data for query: {query}", 
-                level="ERROR", 
-                base_path=base_path, 
-                filename=filename)
+            utils.log(f"No 'items' key in response data for query: {query}", level="ERROR", **LOG)
             return None
         
         else:
             if isinstance(data['items'], list):
-                log(f"'items' key found with {len(data['items'])} results for query: {query}", 
-                    level="INFO", 
-                    base_path=base_path, 
-                    filename=filename)
+                utils.log(f"'items' key found with {len(data['items'])} results for query: {query}", level="INFO", **LOG)
                 
                 results = data.get('items', [])
 
             else:
-                log(f"'items' key is not a list for query: {query}",
-                    level="ERROR", 
-                    base_path=base_path, 
-                    filename=filename)
+                utils.log(f"'items' key is not a list for query: {query}", level="ERROR", **LOG)
                 return None
 
         if not results:
-            log(f"No games found for query: {query}", base_path=base_path, filename=filename)
+            utils.log(f"No games found for query: {query}", **LOG)
             return []
         
-        log(f"Found {len(results)} games for query: {query}", base_path=base_path, filename=filename)
+        utils.log(f"Found {len(results)} games for query: {query}", **LOG)
         return results
     
     except Exception as e:
-        log(f"Exception occurred while searching games: {e}", 
-            level="ERROR", 
-            base_path=base_path, 
-            filename=filename)
+        utils.log(f"Exception occurred while searching games: {e}", level="ERROR", **LOG)
         return None
 
 def display_matches(matches, max_display=5, interactive=False):
@@ -124,6 +117,32 @@ def display_matches(matches, max_display=5, interactive=False):
             break
     return None
 
+def stop_pagination(page, encoded_cursor, cursor_list, page_signatures, fetched_reviews):
+    if page is None: # Error fetching page
+            return ("ERROR", None)
+
+    if encoded_cursor is None: # No more pages
+        return ("STOP", None)
+    
+    if encoded_cursor in cursor_list: # Loop detection
+        return ("ERROR", None)
+    
+    if len(page['reviews']) == 0: # No reviews found
+            if len(fetched_reviews) == 0:
+                return ("ERROR", None)
+            else:
+                return ("STOP", None)
+            
+    # Duplicate page detection
+    signature = utils.validate_page_signature(page["reviews"])
+
+    if signature is None:
+        return ("ERROR", None)
+    if signature in page_signatures:
+        return ("DUPLICATE", None)
+    
+    return ("CONTINUE", signature)
+        
 def select_game(matches):
     if not matches:
         return None
@@ -142,7 +161,7 @@ def confirm_match(match):
     while user_input not in ['y', 'n', 'q']:
         user_input = input("Please enter 'y' or 'n' or 'q': ").strip().lower()
     if user_input == 'y':
-        log("User confirmed the game match.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        utils.log("User confirmed the game match.", level="INFO", **LOG)
         return True
     elif user_input == 'n':
         return False
@@ -188,88 +207,34 @@ def fetch_reviews(id, limit, stop_condition):
     while True:
         page, encoded_cursor = fetch_review_page(id, encoded_cursor)
 
-        if page is None: # Error fetching page
-            log("No more pages to fetch or error occurred.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        decision, signature = stop_pagination(page, encoded_cursor, cursor_list, page_signatures, reviews)
+        
+        if decision == "ERROR":
+            utils.log("Pagination Error", level="ERROR", **LOG)
             return None
-
-        if encoded_cursor is None: # No more pages
-            log("No more pages to fetch.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        
+        elif decision == "STOP":
+            utils.log("No more pages or reviews found", level="INFO", **LOG)
             return reviews
         
-        if encoded_cursor in cursor_list: # Loop detection
-            log("Detected repeated cursor - stopping pagination to avoid infinite loop.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
+        elif decision == "DUPLICATE":
+            utils.log("Duplicate page found, skipping", level="INFO", **LOG)
+            continue
 
-        if not isinstance(page['reviews'], list): # Invalid reviews format
-            log("Invalid reviews format on the current page.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
-        
-        # Duplicate page detection
-        page_signature = tuple(sorted(review['timestamp_created'] for review in page['reviews']))
-
-        if page_signature in page_signatures:
-            log("Duplicate review page detected, skipping this page.", level="INFO",
-                base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            continue  # Skip to next page
-
-        page_signatures.add(page_signature)
-
-        cursor_list.add(encoded_cursor) # Add current cursor to the set
-
-
-        if len(page['reviews']) == 0: # No reviews found
-            if len(reviews) == 0:
-                log("No reviews found for the game.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            else:
-                log("End of reviews for the game.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return reviews
-
-        for review in page['reviews']: # Validate each review structure
-            if not isinstance(review, dict): # Invalid review format
-                log("Invalid review format in the current page.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            
-            item_checker = ['review', 'voted_up', 'timestamp_created', 'author'] # Expected keys in each review
-
-            if not all(key in review for key in item_checker): # Check for expected keys
-                log("Missing expected keys in review data.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            
-            if not isinstance(review['voted_up'], bool): # Invalid voted_up format
-                log("Invalid 'voted_up' format in review data.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            
-            if not isinstance(review['timestamp_created'], int): # Invalid timestamp format
-                log("Invalid 'timestamp_created' format in review data.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-
-            if not isinstance(review['author'], dict): # Invalid author format
-                log("Invalid author format in review data.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            
-            author_checker = ['playtime_forever', 'num_reviews'] # Expected keys in author data
-
-            if not all(key in review['author'] for key in author_checker): # Check for expected keys
-                log("Missing expected keys in author data.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
-            
-            if not isinstance(review['author']['playtime_forever'], (int,float)) or not isinstance(review['author']['num_reviews'], (int, float)):
-                log("Invalid data types in author information.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-                return None
+        elif decision == "CONTINUE":
+            cursor_list.add(encoded_cursor) # Add current cursor to the set
+            page_signatures.add(signature)
 
         for review in page['reviews']: # Process each review
 
             reviews.append(review) # Add review to the list
 
             if stop_condition(review, reviews, limit): # Check stopping condition
-                log(f"Stopping condition met after fetching {len(reviews)} reviews.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+                utils.log(f"Stopping condition met after fetching {len(reviews)} reviews.", level="INFO", **LOG)
                 
                 return reviews
-        
-        continue
 
-def fetch_review_page(id, encoded_cursor, base_path="Pipeline/logs/", filename="pipeline_log.txt"):
+def fetch_review_page(id, encoded_cursor):
     url = f"https://store.steampowered.com/appreviews/{id}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100&cursor={encoded_cursor}"
     reviews = None # Initialize variable to store the reviews response
     reviews_data = None # Initialize variable to store the reviews data
@@ -281,12 +246,12 @@ def fetch_review_page(id, encoded_cursor, base_path="Pipeline/logs/", filename="
     
     except requests.HTTPError as http_err: # Handle HTTP errors
         message = f"HTTP error occurred: {http_err}"
-        log(message, level="ERROR", base_path=base_path, filename=filename)
+        utils.log(message, level="ERROR", **LOG)
         return None, None
 
     except requests.RequestException as e: # Handle other request-related errors
         message = f"Request error occurred: {e}"
-        log(message, level="ERROR", base_path=base_path, filename=filename)
+        utils.log(message, level="ERROR", **LOG)
         return None, None
 
     try:
@@ -294,83 +259,32 @@ def fetch_review_page(id, encoded_cursor, base_path="Pipeline/logs/", filename="
         
     except Exception as e:
         message = f"Error parsing JSON response: {e}"
-        log(message, level="ERROR", base_path=base_path, filename=filename)
+        utils.log(message, level="ERROR", **LOG)
         return None, None
 
-    if 'success' not in reviews_data or reviews_data['success'] != 1: # Check for success key in response
-        message = f"API response indicates failure for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
-        return None, None
-    
-    if 'reviews' not in reviews_data: # Check for reviews key in response
-        message = f"No 'reviews' key in API response for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
-        return None, None
-    
-    if not isinstance(reviews_data['reviews'], list):
-        message = f"'reviews' key is not a list in API response for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
-        return None, None
-    
-    for review in reviews_data['reviews']:
-        if not isinstance(review, dict):
-            message = f"Invalid review format in API response for game id {id}."
-            log(message, level="ERROR", base_path=base_path, filename=filename)
-            return None, None
-    
-    if len(reviews_data['reviews']) == 0:
-        message = f"No reviews found in API response for game id {id}."
-        log(message, level="INFO", base_path=base_path, filename=filename)
-        return None, None
-    
-    if 'cursor' not in reviews_data: # Check for cursor key in response
-        message = f"No 'cursor' key in API response for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
-        return None, None
-    
-    if not isinstance(reviews_data['cursor'], str):
-        message = f"'cursor' key is not a string in API response for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
-        return None, None
-    
-    if reviews_data['cursor'] == "":
-        message = f"Empty 'cursor' in API response for game id {id}."
-        log(message, level="ERROR", base_path=base_path, filename=filename)
+    if not utils.validate_review_page(reviews_data):
+        utils.log("Invalid review page structure received from API.", 
+                  level="ERROR", **LOG)
         return None, None
     
     else:
-        log(f"Fetched {len(reviews_data['reviews'])} reviews for game id {id}.", level="INFO", base_path=base_path, filename=filename)
+        utils.log(f"Fetched {len(reviews_data['reviews'])} reviews for game id {id}.", level="INFO", **LOG)
         next_page = reviews_data['cursor'] # Get the cursor for the next page of reviews
-        temp = encoded_cursor
-        encoded_cursor = quote(next_page) # URL-encode the cursor for safe transmission
+        encoded_cursor = quote(next_page) # URL-encode the cursor for the next page
 
-        if temp == encoded_cursor:
-            log(f"Cursor did not change for game id {id}, stopping pagination.", level="INFO", base_path=base_path, filename=filename)
-            return None, None
-        
         return reviews_data, encoded_cursor
 
 def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
     if not reviews:
-        log("No reviews fetched - skipping saving step", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        utils.log("No reviews fetched - skipping saving step", level="INFO", **LOG)
         print("No reviews fetched - skipping saving step")
         return
     
     raw_path = os.path.join(base_path, "raw")
     clean_path = os.path.join(base_path, "clean")
-    os.makedirs(raw_path, exist_ok=True)
-    os.makedirs(clean_path, exist_ok=True)
 
-    if 'id' not in selected_game: # Check for game ID in selected_game
-        log("Selected game ID not found in selected_game dictionary - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-        return None
-
-    if selected_game['id'] is None: # Check for None game ID
-        log("Selected game ID is None - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-        return None
-    
-    if not isinstance(selected_game['id'], (str, int)): # Check for valid game ID type
-        log("Selected game ID is not a valid type - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+    if not utils.validate_selected_game(selected_game):
+        utils.log("Invalid selected game data - cannot save reviews.", level="ERROR", **LOG)
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -383,33 +297,17 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
 
     for x in reviews:
 
-        checker = ['review', 'voted_up', 'timestamp_created', 'author']
-
-        if not all(key in x for key in checker):
-            log("Missing expected keys in review data - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
-        
-        author_checker = ['playtime_forever', 'num_reviews']
-
-        if not isinstance(x['author'], dict):
-            log("Invalid author format in review data - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
-        
-        if not all(key in x['author'] for key in author_checker):
-            log("Missing expected keys in author data - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
-        
-        if not isinstance(x['author']['playtime_forever'], (int,float)) or not isinstance(x['author']['num_reviews'], (int, float)):
-            log("Invalid data types in author information - cannot save review.", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
-            return None
+        if not utils.validate_single_review(x):
+            utils.log("Invalid review data detected - skipping review.", level="ERROR", **LOG)
+            continue
 
     try:
         with open(file_json, "w", encoding="utf-8") as f: # Save as json
             json.dump(reviews, f, ensure_ascii=False, indent = 4)
-            log(f"Saved reviews to {file_json}.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+            utils.log(f"Saved reviews to {file_json}.", level="INFO", **LOG)
 
     except Exception as e:
-        log(f"Error saving reviews to JSON: {e}", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        utils.log(f"Error saving reviews to JSON: {e}", level="ERROR", **LOG)
         return None
 
     try:
@@ -426,12 +324,13 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
                     x["author"]["playtime_forever"],
                     x["author"]["num_reviews"]
                 ])
-
-        log(f"Saved {len(reviews)} reviews to {file_json} and {file_csv}.", level="INFO", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        utils.log(f"Saved reviews to {file_csv}.", level="INFO", **LOG)
 
     except Exception as e:
-        log(f"Error saving reviews to CSV: {e}", level="ERROR", base_path="Pipeline/logs/", filename="pipeline_log.txt")
+        utils.log(f"Error saving reviews to CSV: {e}", level="ERROR", **LOG)
         return None
+    
+    utils.log(f"Saved {len(reviews)} reviews to {file_json} and {file_csv}.", level="INFO", **LOG)
 
 def main():
     print("Pipeline started...")
@@ -453,6 +352,5 @@ def main():
 
     return 0
 
-    
 if __name__ == "__main__":
     main()

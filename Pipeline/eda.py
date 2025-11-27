@@ -6,21 +6,31 @@ import os
 import wordcloud
 import nltk
 from process import get_latest_csv
-from utils.logger import log
+import utils.utils as utils
 
-base_path = "../steam-project/EDA/logs/"
-filename = "eda_log.txt"
+LOG = {
+    "base_path": "../steam-project/EDA/logs/",
+    "filename": "eda_log.txt"
+}
+
+paths = [
+    "../steam-project/EDA/plots",
+    "../steam-project/EDA/wordclouds",
+    "../steam-project/EDA/logs/"
+]
+
+utils.ensure_directory(paths)
 
 def get_basic_data(df):
     if df is None or df.empty:
-        log("Data frame is empty or None.", level = "ERROR", base_path = base_path, filename = filename)
+        utils.log("Data frame is empty or None.", level = "ERROR", **LOG)
         return
 
     if "voted_up" not in df.columns:
-        log("'voted_up' column not found in data frame.", level = "ERROR", base_path = base_path, filename = filename)
+        utils.log("'voted_up' column not found in data frame.", level = "ERROR", **LOG)
         return
     
-    log("Generating basic data overview.", level = "INFO", base_path = base_path, filename = filename)
+    utils.log("Generating basic data overview.", level = "INFO", **LOG)
 
     print("\n - - - Data frame info: - - - \n")
     df.info(verbose=True) # Detailed info about DataFrame
@@ -40,22 +50,23 @@ def get_basic_data(df):
     print("\n - - - Duplicates in DataFrame: - - - \n")
     print(df.duplicated().sum()) # Count of duplicate rows
 
-    log ("Basic data overview generated.", level = "INFO", base_path = base_path, filename = filename)
+    utils.log("Basic data overview generated.", level = "INFO", **LOG)
 
 #def preprocess_text(df):
 
 def main():
-    os.makedirs("../steam-project/EDA", exist_ok=True) # Ensure processed directory exists
     latest_file = get_latest_csv("Pipeline/data/processed/")
-    
+    if latest_file is None:
+        utils.log("No file found for EDA", level="ERROR", **LOG)
+        return None
     try:
         df = pd.read_csv(latest_file)
-        log(f"Latest processed CSV file found: {latest_file}", level = "INFO", base_path = base_path, filename = filename)
-        log("Reading CSV file for EDA.", level = "INFO", base_path = base_path, filename = filename)
+        utils.log(f"Latest processed CSV file found: {latest_file}", level = "INFO", **LOG)
+        utils.log("Reading CSV file for EDA.", level = "INFO", **LOG)
         get_basic_data(df)
         
     except Exception as e:
-        log(f"Error reading CSV file: {e}", level = "ERROR", base_path = base_path, filename = filename)
+        utils.log(f"Error reading CSV file: {e}", level = "ERROR", **LOG)
 
 if __name__ == "__main__":
     main()
