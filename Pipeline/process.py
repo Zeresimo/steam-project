@@ -32,6 +32,7 @@ def get_latest_csv(base_path = "Pipeline/data/clean"):
     return latest_file
 
 def clean_rows(df):
+    print(df.dtypes)
     if not utils.validate_dataframe_columns(df):
         utils.log("Data Frame validation failed during cleaning.", level = "ERROR", **LOG)
         return None

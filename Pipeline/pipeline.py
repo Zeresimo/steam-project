@@ -288,11 +288,18 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
         return None
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    game_name = selected_game["name"]
+    app_id = selected_game["id"]
+    safe_game_name = utils.sanitize_filename(game_name)
 
-    filename_json = f"reviews_raw_{selected_game['id']}_{timestamp}.json"
+    for review in reviews:
+        review["game_name"] = game_name
+        review["appid"] = app_id
+
+    filename_json = f"reviews_raw_{selected_game['id']}_{safe_game_name}_{timestamp}.json"
     file_json = os.path.join(raw_path, filename_json)
     
-    filename_csv = f"reviews_{selected_game['id']}_{timestamp}.csv"
+    filename_csv = f"reviews_{selected_game['id']}__{safe_game_name}_{timestamp}.csv"
     file_csv = os.path.join(clean_path, filename_csv)
 
     for x in reviews:
@@ -313,11 +320,12 @@ def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
     try:
         with open(file_csv, "w", newline="", encoding="utf-8") as g:
             writer = csv.writer(g)
-            writer.writerow(["id", "review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
+            writer.writerow(["appid", "game_name", "review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
 
             for x in reviews:
                 writer.writerow([
-                    selected_game['id'],
+                    x["appid"],
+                    x["game_name"],
                     x["review"],
                     x["voted_up"],
                     x["timestamp_created"],

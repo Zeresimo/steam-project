@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import re
+import numpy as np
 
 def log(message, level="INFO",
         base_path = "Pipeline/logs/",
@@ -126,7 +127,7 @@ def validate_page_signature(reviews):
 
 def validate_dataframe_columns(df):
     """Return True if the DataFrame contains all required columns."""
-    required_columns = ['review', 'id', 'voted_up', 'timestamp_created', 'playtime_forever', 'num_reviews']
+    required_columns = ['game_name','review', 'appid', 'voted_up', 'timestamp_created', 'playtime_forever', 'num_reviews']
 
     if not all(column in df.columns for column in required_columns):
         return False
@@ -145,6 +146,13 @@ def validate_review_text(text):
     
     return True
 
+def validate_column_type(df, column_name, allowed_types):
+    if column_name not in df.columns:
+        return False
+    for value in df[column_name]:
+        if not isinstance(value, allowed_types):
+            return False
+    return True
 # ==================== Cleaning Helpers ==================== #
 
 def clean_text(text):
@@ -163,3 +171,35 @@ def ensure_directory(paths):
     """Ensure all directory paths in the provided list exist."""
     for path in paths:
         os.makedirs(path, exist_ok=True)
+
+def sanitize_filename(name):
+    """
+    Convert any string into a safe filename by:
+    - replacing non-alphanumeric characters with '_'
+    - collapsing multiple underscores into one
+    - stripping leading/trailing underscores
+    """
+    # Replace any character not A-Z, a-z, 0-9 with '_'
+    safe = re.sub(r'[^A-Za-z0-9]+', '_', name)
+
+    # Remove multiple consecutive underscores
+    safe = re.sub(r'_+', '_', safe)
+
+    # Strip leading/trailing underscores
+    safe = safe.strip('_')
+
+    return safe
+
+def save_plot(plt, title, game_name, LOG, file_path = "../steam-project/EDA/plots/"):
+    safe_game_name = sanitize_filename(game_name)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
+    filename = f"{title}_{safe_game_name}_{timestamp}.png"
+    file = os.path.join(file_path, filename)
+    try:
+        plt.savefig(file, dpi=300, format='png')
+        log(f"Plot'{title}' saved in {file_path} as {filename}", level="INFO", **LOG)
+    except Exception as e:
+        log(f"Error saving {title}: {e}", level="ERROR", **LOG)
+
+    plt.clf()
