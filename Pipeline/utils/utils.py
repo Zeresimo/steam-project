@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 import re
 import numpy as np
+import glob
 
 def log(message, level="INFO",
         base_path = "Pipeline/logs/",
@@ -167,6 +168,19 @@ def clean_text(text):
     return text.lower() # Convert to lowercase
 
 # ==================== General Helpers ==================== #
+def get_latest_csv(LOG, base_path = "Pipeline/data/"):
+    files = glob.glob(os.path.join(base_path, "*.csv")) # Get all CSV files in the directory
+
+    if not files:
+        log("No CSV files found in the directory.", level = "INFO", **LOG)
+        return None
+    
+    else:
+        latest_file = max(files, key=os.path.getmtime) # Get the most recently modified file
+        log(f"Latest CSV file found: {latest_file}", level = "INFO", **LOG)
+
+    return latest_file
+
 def ensure_directory(paths):
     """Ensure all directory paths in the provided list exist."""
     for path in paths:

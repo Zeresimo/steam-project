@@ -18,19 +18,6 @@ paths = [
 
 utils.ensure_directory(paths)
 
-def get_latest_csv(base_path = "Pipeline/data/clean"):
-    files = glob.glob(os.path.join(base_path, "*.csv")) # Get all CSV files in the directory
-
-    if not files:
-        utils.log("No CSV files found in the directory.", level = "INFO", **LOG)
-        return None
-    
-    else:
-        latest_file = max(files, key=os.path.getmtime) # Get the most recently modified file
-        utils.log(f"Latest CSV file found: {latest_file}", level = "INFO", **LOG)
-
-    return latest_file
-
 def clean_rows(df):
     print(df.dtypes)
     if not utils.validate_dataframe_columns(df):
@@ -56,7 +43,7 @@ def clean_reviews(text):
     return cleaned
 
 def main():
-    latest_file = get_latest_csv()
+    latest_file = utils.get_latest_csv(LOG, base_path="Pipeline/data/clean")
 
     if latest_file is None:
         utils.log("No CSV files to process. Exiting.", level = "ERROR", **LOG)

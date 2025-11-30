@@ -5,7 +5,6 @@ from datetime import datetime
 import os
 import wordcloud
 import nltk
-from process import get_latest_csv
 import utils.utils as utils
 import numpy as np
 
@@ -393,7 +392,7 @@ def run_all_eda(df):
     plot_weekday_review_distribution(df)
 
 def main():
-    latest_file = get_latest_csv("Pipeline/data/processed/")
+    latest_file = utils.get_latest_csv(LOG, base_path="Pipeline/data/processed")
     if latest_file is None:
         utils.log("No file found for EDA", level="ERROR", **LOG)
         return None
