@@ -199,3 +199,8 @@ data/tmp/
 
 # Keep small sample datasets
 !data/examples/
+Pipeline/logs/process_log.txt
+Pipeline/logs/pipeline_log.txt
+ML/logs/ML_train_log.txt
+ML/logs/ML_predict_log.txt
+EDA/logs/eda_log.txt
