@@ -1,7 +1,17 @@
 import pandas as pd
 import numpy as np
 import joblib
-import os
+
+import sys, os
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+ML_DIR = os.path.join(ROOT, "ML")
+MODEL_DIR = os.path.join(ML_DIR, "models")
+LOG_DIR = os.path.join(ML_DIR, "logs")
+OUTPUT_DIR = os.path.join(ML_DIR, "output")
+
+
+
+
 
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -27,15 +37,11 @@ from Pipeline.utils.utils import (
 )
 
 LOG = {
-    "base_path": "ML/logs/",
-    "filename": "ML_log.txt"
+    "base_path": LOG_DIR + "/",
+    "filename": "ML_train_log.txt"
 }
 
-paths = [
-    "Pipeline/data/processed",
-    "ML/logs/"
-    "ML/models/"
-]
+paths = [LOG_DIR, MODEL_DIR, OUTPUT_DIR]
 
 ensure_directory(paths)
 
@@ -174,7 +180,7 @@ def save_model_and_vectorizer(model, vectorizer, name):
     log(f"Saving model and vectorizer for {name}", level="INFO", **LOG)
 
     filename = name
-    file_path = "ML/models/"
+    file_path = MODEL_DIR
     vec_path = os.path.join(file_path, filename + "_vectorizer.joblib")
     model_path = os.path.join(file_path, filename + "_model.joblib")
 
@@ -214,3 +220,6 @@ def main():
         log("Successfully saved Naive Bayes model and vectorizer", level="INFO", **LOG)
     else:
         log("Saving failed for Naive Bayes model and vectorizer", level="ERROR", **LOG)
+
+if __name__ == "__main__":
+    main()

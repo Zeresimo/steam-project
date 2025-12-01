@@ -363,18 +363,26 @@ def plot_weekday_review_distribution(df):
     if not utils.validate_column_type(df, "timestamp_created", (int, np.integer)):
         utils.log("Timestamp_created column validation error", level="ERROR", **LOG)
         return
-    df["weekday"] = df["timestamp_created"].apply(lambda ts: datetime.fromtimestamp(ts).weekday())
-    counts = df["weekday"].value_counts().sort_index()
+    
+    # Convert timestamp → weekday name
+    df["weekday"] = df["timestamp_created"].apply(
+        lambda ts: datetime.fromtimestamp(ts).strftime("%a")
+    )
+
+    weekday_order = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+
+    counts = df["weekday"].value_counts().reindex(weekday_order, fill_value=0)
 
     game_name = df["game_name"].iloc[0]
 
     plt.figure(figsize=(14, 6))
-    plt.bar(["Mon","Tue","Wed","Thu","Fri","Sat","Sun"], counts.values)
+    plt.bar(weekday_order, counts.values)
     plt.title(f"Review Activity by Weekday for {game_name}", fontsize=14)
     plt.xlabel("Day of Week", fontsize=12)
     plt.ylabel("Number of Reviews", fontsize=12)
 
     utils.save_plot(plt, "Weekday Review Distribution", game_name, LOG)
+
 
 def run_all_eda(df):
     plot_sentiment_distribution(df)
