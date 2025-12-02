@@ -9,15 +9,24 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from paths import ROOT, EDA_PLOTS, EDA_WORDCLOUDS
+from paths import ROOT, EDA_PLOTS, EDA_WORDCLOUDS, PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS
+
 from Dashboard.api_bridge import (
     api_search_games, 
     api_fetch_reviews, 
     api_clean_and_predict
 )
 from ML.predict import load_model, predict_review, run_batch_prediction
-
+from Pipeline.pipeline import fetch_reviews, save_reviews
+from Pipeline.process import main as process_main
+from ML.model import main as train_main
+from EDA.eda import run_all_eda
 from Pipeline.utils import utils
+
+DASHBOARD_LOG = {
+    "base_path": PIPE_LOGS + "/",
+    "filename": "dashboard_temp_log.txt"
+}
 
 # Streamlit Page Configuration
 st.set_page_config(
@@ -39,7 +48,8 @@ page = st.sidebar.selectbox(
     "EDA Visualizations", 
     "Single Review Prediction", 
     "Batch Prediction", 
-    "Fetch Live Reviews"
+    "Fetch Live Reviews",
+    "Full Pipeline"
     ]
 )
 
@@ -98,7 +108,7 @@ elif page == "EDA Visualizations":
         # Display images
         for img in images:
             img_path = os.path.join(directory, img)
-            st.image(img_path, caption=img, use_column_width=True)
+            st.image(img_path, caption=img, use_container_width=True)
 
         st.markdown("---")
 
@@ -205,7 +215,6 @@ elif page == "Batch Prediction":
 
         os.remove(temp_path)
 
-
 # FETCH LIVE STEAM REVIEWS
 elif page == "Fetch Live Reviews":
     st.header("🌐 Fetch Live Steam Reviews")
@@ -299,3 +308,105 @@ elif page == "Fetch Live Reviews":
         # Only show this if user has already attempted a search
         if query.strip():
             st.info("Search for a game to continue.")
+
+# FULL PIPELINE (Fetch → Save → Process → EDA → Train Models)
+elif page == "Full Pipeline":
+    st.header("🚀 Full Automated ML Pipeline")
+
+    st.write(
+        """
+        This will run your complete data pipeline:
+
+        1) Fetch live Steam reviews  
+        2) Save raw + cleaned reviews  
+        3) Process the cleaned data  
+        4) Generate EDA visualizations  
+        5) Train Logistic Regression + Naive Bayes  
+        
+        *(Files saved on Streamlit Cloud are temporary. Download anything you need.)*
+        """
+    )
+
+    # SEARCH GAME
+    st.subheader("1. Search for a Steam Game")
+    query = st.text_input("Enter game name:")
+
+    if st.button("Search Game"):
+        results = api_search_games(query)
+        st.session_state["pipeline_games"] = results or []
+
+    # GAME SELECTION
+    if st.session_state.get("pipeline_games"):
+        results = st.session_state["pipeline_games"]
+        labels = [f"{g['name']} (id: {g['id']})" for g in results]
+
+        st.subheader("2. Select Game")
+        selected_label = st.selectbox("Choose a game:", labels)
+        selected_game = results[labels.index(selected_label)]
+
+        appid = selected_game["id"]
+        game_name = selected_game["name"]
+
+        # REVIEW LIMIT
+        st.subheader("3. Number of Reviews to Fetch")
+        limit = st.number_input(
+            "How many reviews?",
+            min_value=50,
+            max_value=3000,
+            value=300,
+            step=50
+        )
+
+        # RUN FULL PIPELINE BUTTON
+        if st.button("Run Full Pipeline"):
+            st.info("Running full ML pipeline... This may take a while.")
+
+            # FETCH REVIEWS
+            with st.spinner("Fetching reviews..."):
+                # STOP CONDITION (FETCH LIMIT)
+                stop_condition = lambda review, reviews, limit: len(reviews) >= limit
+
+                # FETCH REVIEWS
+                reviews = fetch_reviews(appid, limit, stop_condition)
+
+                if not reviews:
+                    st.error("Failed to fetch any reviews.")
+                    st.stop()
+
+            # SAVE REVIEWS (RAW + CLEAN CSV)
+            with st.spinner("Saving raw + cleaned reviews..."):
+                save_reviews(selected_game, reviews)
+
+            st.success("Saved raw + cleaned reviews.")
+
+            # PROCESS CLEANED CSV → PROCESSED CSV
+            with st.spinner("Processing cleaned data..."):
+                result = process_main()
+
+            if result != 0:
+                st.error("Processing failed. Cannot continue.")
+                st.stop()
+
+            st.success("Processing complete!")
+
+            # LOAD PROCESSED DATASET
+            processed_file = utils.get_latest_csv(DASHBOARD_LOG, base_path=PIPE_PROCESSED)
+            df_processed = pd.read_csv(processed_file)
+
+            st.success(f"Loaded processed dataset: {processed_file}")
+
+            # RUN EDA
+            with st.spinner("Generating EDA visualizations..."):
+                run_all_eda(df_processed)
+
+            st.success("EDA completed!")
+
+            # TRAIN MODELS
+            with st.spinner("Training ML models..."):
+                train_main()
+
+            st.success("Training completed! 🎉")
+
+            # DONE
+            st.header("🎉 Pipeline Completed Successfully!")
+            st.info("All files saved to temporary cloud storage. Download anything you need.")

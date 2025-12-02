@@ -25,7 +25,6 @@ def api_search_games(query):
 
     results = search_games(query)
     if results is None:
-        utils.error("api_search_games: search_games() returned None.", None)
         return []
 
     return results
@@ -43,14 +42,11 @@ def api_fetch_reviews(appid, limit):
         list | None: List of review dicts, or None on failure.
     """
 
-    utils.info(f"api_fetch_reviews: Fetching {limit} reviews for appid={appid}.", None)
-
     stop_condition = lambda review, reviews, lim: len(reviews) >= lim
 
     reviews = fetch_reviews(appid, limit, stop_condition)
 
     if reviews is None:
-        utils.error("api_fetch_reviews: fetch_reviews() returned None.", None)
         return None
 
     return reviews
@@ -72,10 +68,7 @@ def api_clean_and_predict(reviews, model, vectorizer, appid, game_name):
     """
 
     if reviews is None or len(reviews) == 0:
-        utils.error("api_clean_and_predict: No reviews received.", None)
         return pd.DataFrame()
-
-    utils.info(f"api_clean_and_predict: Cleaning and predicting {len(reviews)} reviews.", None)
 
     cleaned = []
     texts = []
@@ -102,21 +95,18 @@ def api_clean_and_predict(reviews, model, vectorizer, appid, game_name):
         })
 
     if len(cleaned) == 0:
-        utils.error("api_clean_and_predict: All reviews filtered out after cleaning.", None)
         return pd.DataFrame()
 
     # Vectorize in one batch
     try:
         X = vectorizer.transform(texts)
     except Exception as err:
-        utils.error(f"api_clean_and_predict: Vectorization failed ({err}).", None)
         return pd.DataFrame()
 
     # Predict in one batch
     try:
         preds = model.predict(X)
     except Exception as err:
-        utils.error(f"api_clean_and_predict: Prediction failed ({err}).", None)
         return pd.DataFrame()
 
     # Confidence scores (if supported)
@@ -125,8 +115,8 @@ def api_clean_and_predict(reviews, model, vectorizer, appid, game_name):
         try:
             confidence = model.predict_proba(X)[:, 1]
         except Exception:
-            utils.info("api_clean_and_predict: predict_proba failed; confidence omitted.", None)
-    
+            confidence = None
+            
     # Attach predictions
     for i, row in enumerate(cleaned):
         sentiment = "Positive" if preds[i] == 1 else "Negative"
