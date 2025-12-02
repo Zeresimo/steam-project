@@ -235,7 +235,8 @@ def evaluate_model(model, x_test_vec, y_test, model_type="NONE"):
     )
 
     # Classification report (text form)
-    cls_report = classification_report(y_test, y_pred)
+    cls_report = classification_report(y_test, y_pred, zero_division=0)
+    cls_report = cls_report.encode("ascii", "ignore").decode()
     utils.info(f"evaluate_model: Classification Report:\n{cls_report}", LOG)
 
     # Confusion matrix
@@ -292,26 +293,32 @@ def save_model_and_vectorizer(model, vectorizer, name):
 
     return True
 
+def sanitize(obj):
+    """Recursively remove all non-ASCII characters from metrics."""
+    if isinstance(obj, str):
+        return obj.encode("ascii", "ignore").decode()
+    if isinstance(obj, list):
+        return [sanitize(v) for v in obj]
+    if isinstance(obj, dict):
+        return {k: sanitize(v) for k, v in obj.items()}
+    return obj
+
 def save_evaluation_report(metrics, name):
     """
-    Save evaluation metrics to a JSON file.
-
-    Args:
-        metrics (dict): Evaluation metrics returned by evaluate_model().
-        name (str): Base name of the model (e.g., "logistic_regression").
-
-    Returns:
-        bool: True on success, False on failure.
+    Save evaluation metrics to JSON and ensure all unicode characters
+    are sanitized so Windows can write the file safely.
     """
-
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"{name}_metrics_{timestamp}.json"
     output_path = os.path.join(OUTPUT_DIR, filename)
 
+    # recursively sanitize metrics (important!)
+    safe_metrics = sanitize(metrics)
+
     try:
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(metrics, f, indent=4)
-        utils.info(f"save_evaluation_report: Saved metrics → {output_path}", LOG)
+            json.dump(safe_metrics, f, indent=4)
+        utils.info(f"save_evaluation_report: Saved metrics - {output_path}", LOG)
         return True
 
     except Exception as err:
