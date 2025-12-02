@@ -21,341 +21,487 @@ paths = [PIPE_RAW, PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS]
 utils.ensure_directory(paths)
 
 def search_games(query):
+    """
+    Search Steam for games matching a user query.
+
+    Args:
+        query (str): The game name or phrase to search.
+
+    Returns:
+        list | None:
+            A list of matching game dictionaries, or None if the request fails.
+
+    Notes:
+        - Wraps the Steam storesearch API.
+        - Used in both CLI pipeline and dashboard.
+    """
 
     if not query or not isinstance(query, str):
-        utils.log("Invalid query provided to search_games.", level="ERROR", **LOG)
-        return None
-    
+        return utils.error("search_games: Invalid query provided.", LOG)
+
     url = "https://store.steampowered.com/api/storesearch/"
-    params = {
-        'term': query,
-        'cc': 'US',
-        'l': 'english'
-    }
+    params = {"term": query, "cc": "US", "l": "english"}
 
+    # Send request to Steam
     try:
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=(5, 10))
+    except Exception as err:
+        return utils.error(f"search_games: Request error ({err}).", LOG)
 
-        if response.status_code != 200:
-            utils.log(f"Failed to fetch game list. Status code: {response.status_code}", level="ERROR", **LOG)
-            
-            return None
-        
-        try:
-            data = response.json()
-            utils.log(f"Game search successful for query: {query}", level="INFO", **LOG)
-            
-        except Exception as e:
-            utils.log(f"Error parsing JSON response: {e}", level="ERROR", **LOG)
-            return None
-        
-        if 'items' not in data:
-            utils.log(f"No 'items' key in response data for query: {query}", level="ERROR", **LOG)
-            return None
-        
-        else:
-            if isinstance(data['items'], list):
-                utils.log(f"'items' key found with {len(data['items'])} results for query: {query}", level="INFO", **LOG)
-                
-                results = data.get('items', [])
+    # Ensure response is usable
+    if response.status_code != 200:
+        return utils.error(
+            f"search_games: API returned status {response.status_code}.", LOG)
 
-            else:
-                utils.log(f"'items' key is not a list for query: {query}", level="ERROR", **LOG)
-                return None
+    # Parse JSON
+    try:
+        data = response.json()
+    except Exception as err:
+        return utils.error(f"search_games: Failed to parse JSON ({err}).", LOG)
 
-        if not results:
-            utils.log(f"No games found for query: {query}", **LOG)
-            return []
-        
-        utils.log(f"Found {len(results)} games for query: {query}", **LOG)
-        return results
-    
-    except Exception as e:
-        utils.log(f"Exception occurred while searching games: {e}", level="ERROR", **LOG)
-        return None
+    # Validate expected structure
+    if "items" not in data or not isinstance(data["items"], list):
+        return utils.error("search_games: Missing or invalid 'items' in API response.", LOG)
+
+    results = data["items"]
+    utils.info(f"search_games: Found {len(results)} result(s) for query '{query}'.", LOG)
+
+    return results or []
 
 def display_matches(matches, max_display=5, interactive=False):
+    """
+    Display paginated game search results and optionally allow selection.
+
+    Args:
+        matches (list): List of game dictionaries returned by search_games().
+        max_display (int): Number of results to show per page.
+        interactive (bool): If False, simply returns matches without printing.
+
+    Returns:
+        dict | None | list:
+            - If interactive=True: selected game dict or None
+            - If interactive=False: returns matches directly
+    """
+
+    # No matches found
     if not matches:
         if interactive:
             print("No matches found")
         return None
-    total_matches = len(matches)
-    total_pages = ceil(total_matches / max_display)
-    current_page = 0
-    while current_page < total_pages:
-        start_index = current_page * max_display
-        end_index = min(start_index + max_display, total_matches)  
-        
-        if interactive:
-            print(f"Page {current_page + 1} of {total_pages} | Showing matches {start_index+1} to {end_index} of {total_matches}")
-            for i in range(start_index, end_index):
-                match = matches[i]
-                print(f"{i+1}. {match['name']} - id: {match['id']}.")
-        else:
-            return matches
-        
-        menu_choice = input("Enter number to select a game, " \
-        "Press Enter to see next matches, or 'q' to quit: ")
 
-        if menu_choice.lower() == 'q':
-            break
-        elif menu_choice.isdigit():
-            choice = int(menu_choice)
-            if start_index + 1 <= choice <= end_index:
-                selected = choice - 1
-                return matches[selected]
-            else:
-                print("Number out of range, please try again.")
-        elif menu_choice == '':
-            current_page += 1
-        
-        else:
-            print("Invalid input, please enter a number, Enter, or 'q'.")
+    # Non-interactive mode: return the whole list as-is
+    if not interactive:
+        return matches
 
-        if end_index == total_matches:
-            break
+    total = len(matches)
+    total_pages = ceil(total / max_display)
+    page = 0
+
+    while page < total_pages:
+        start = page * max_display
+        end = min(start + max_display, total)
+
+        # Display current page of results
+        print(
+            f"Page {page + 1} of {total_pages} | "
+            f"Showing results {start + 1} to {end} of {total}"
+        )
+
+        for i in range(start, end):
+            entry = matches[i]
+            print(f"{i + 1}. {entry['name']} - id: {entry['id']}")
+
+        # User chooses selection or navigation
+        choice = input(
+            "Enter number to select a game, press Enter for next page, or 'q' to quit: "
+        ).strip().lower()
+
+        # Quit selection entirely
+        if choice == "q":
+            return None
+
+        # If a game number is chosen from this page
+        if choice.isdigit():
+            index = int(choice)
+            if start + 1 <= index <= end:
+                return matches[index - 1]
+            print("Number out of range. Try again.")
+            continue
+
+        # Move to next page
+        if choice == "":
+            page += 1
+            continue
+
+        print("Invalid input. Enter a number, press Enter, or 'q'.")
+
     return None
 
 def stop_pagination(page, encoded_cursor, cursor_list, page_signatures, fetched_reviews):
-    if page is None: # Error fetching page
+    """
+    Decide whether to continue fetching review pages.
+
+    Args:
+        page (dict): Parsed JSON page returned by fetch_review_page().
+        encoded_cursor (str): URL-encoded next cursor from the API.
+        cursor_list (set): Cursors already seen (detect infinite loops).
+        page_signatures (set): Signatures of pages already processed.
+        fetched_reviews (list): All reviews collected so far.
+
+    Returns:
+        tuple:
+            (decision, signature)
+            decision ∈ {"ERROR", "STOP", "DUPLICATE", "CONTINUE"}
+            signature is only returned when decision == "CONTINUE".
+    """
+
+    # API returned no valid page
+    if page is None:
+        utils.log("stop_pagination: Invalid or missing page.", level="ERROR", **LOG)
+        return ("ERROR", None)
+
+    # No cursor means API reached the end
+    if encoded_cursor is None:
+        utils.info("stop_pagination: Cursor is None - reached last page.", LOG)
+        return ("STOP", None)
+
+    # Prevent infinite cursor loops
+    if encoded_cursor in cursor_list:
+        utils.log(f"stop_pagination: Duplicate cursor detected ({encoded_cursor}).",
+                  level="ERROR", **LOG)
+        return ("ERROR", None)
+
+    # Empty review list - either no data or reached the end
+    if len(page["reviews"]) == 0:
+        if len(fetched_reviews) == 0:
+            utils.log("stop_pagination: First page contained no reviews.",
+                      level="ERROR", **LOG)
             return ("ERROR", None)
 
-    if encoded_cursor is None: # No more pages
+        utils.info("stop_pagination: Page has no reviews - stopping.", LOG)
         return ("STOP", None)
-    
-    if encoded_cursor in cursor_list: # Loop detection
-        return ("ERROR", None)
-    
-    if len(page['reviews']) == 0: # No reviews found
-            if len(fetched_reviews) == 0:
-                return ("ERROR", None)
-            else:
-                return ("STOP", None)
-            
-    # Duplicate page detection
-    signature = utils.validate_page_signature(page["reviews"])
 
+    # Create a signature to detect duplicate pages
+    signature = utils.validate_page_signature(page["reviews"])
     if signature is None:
+        utils.log("stop_pagination: Invalid page signature.",
+                  level="ERROR", **LOG)
         return ("ERROR", None)
+
+    # Duplicate page should be skipped
     if signature in page_signatures:
+        utils.info("stop_pagination: Duplicate page signature - skipping.", LOG)
         return ("DUPLICATE", None)
-    
+
+    # Unique valid page - continue fetching
+    utils.info("stop_pagination: Valid page - continuing.", LOG)
     return ("CONTINUE", signature)
-        
+  
 def select_game(matches):
+    """
+    Select a single game from a list of game search results.
+
+    Args:
+        matches (list): List of game dictionaries returned by search_games().
+
+    Returns:
+        dict | None:
+            The selected game dictionary, or None if user does not confirm a choice.
+    """
+
     if not matches:
         return None
-    
+
     if len(matches) == 1:
-        return matches[0] if confirm_match(matches[0]) else None
-    
-    else:
-        selected = display_matches(matches, 5, True)
-        return selected if selected and confirm_match(selected) else None
+        game = matches[0]
+        return game if confirm_match(game) else None
+
+    # Let user choose from paginated results
+    selected = display_matches(matches, max_display=5, interactive=True)
+    if not selected:
+        return None
+
+    return selected if confirm_match(selected) else None
 
 def confirm_match(match):
+    """
+    Ask the user to confirm a selected game match.
+
+    Args:
+        match (dict): A game dictionary containing at least 'name' and 'id'.
+
+    Returns:
+        bool: True if confirmed, False otherwise.
+    """
+
     if not match:
-        return None
-    user_input = input(f"Did you mean '{match['name']}' (id: {match['id']})? (y/n): ").strip().lower()
-    while user_input not in ['y', 'n', 'q']:
-        user_input = input("Please enter 'y' or 'n' or 'q': ").strip().lower()
-    if user_input == 'y':
-        utils.log("User confirmed the game match.", level="INFO", **LOG)
-        return True
-    elif user_input == 'n':
         return False
 
-def get_game_reviews(id):
-    limit = 0 # Initialize limit for pagination
-    limit_type = '' # Initialize limit type for pagination
+    prompt = (
+        f"Confirm selection: '{match['name']}' "
+        f"(id: {match['id']})? (y/n, 'q' to cancel): "
+    )
 
-    print("Do you want to limit by number of reviews or by days? (number/days)")
-    limit_type = input("Enter 'number' for number of reviews or 'days' for days: ").strip().lower()
+    user_input = input(prompt).strip().lower()
 
-    while limit_type not in ['number', 'days']:
+    while user_input not in ("y", "n", "q"):
+        user_input = input("Please enter 'y', 'n', or 'q': ").strip().lower()
+
+    return user_input == "y"
+
+def get_game_reviews(appid):
+    """
+    Prompt the user to choose a review limit method (number or days)
+    and construct the appropriate stop condition for pagination.
+
+    Args:
+        appid (int): Steam AppID of the selected game.
+
+    Returns:
+        list | None: List of review dictionaries, or None on failure.
+    """
+
+    # Ask how to limit review fetching
+    print("Select review fetch limit: 'number' or 'days'")
+    limit_type = input("Enter limit type: ").strip().lower()
+
+    while limit_type not in ("number", "days"):
         limit_type = input("Please enter 'number' or 'days': ").strip().lower()
 
-    if limit_type == 'number':
-        limit = input("Enter the number of reviews to fetch (e.g., 1000): ").strip()
+    # Number of reviews
+    if limit_type == "number":
+        limit = input("Enter number of reviews to fetch (1-10,000): ").strip()
 
-        while not limit.isdigit() or int(limit) <= 0 or int(limit) > 10000:
-            limit = input("Please enter a valid positive integer for the number of reviews (less than 10,000): ").strip()
+        while not limit.isdigit() or not (1 <= int(limit) <= 10000):
+            limit = input("Please enter a valid integer between 1 and 10,000: ").strip()
 
         limit = int(limit)
         stop_condition = lambda review, reviews, limit: len(reviews) >= limit
+
         print(f"Fetching up to {limit} reviews...")
-        return fetch_reviews(id, limit, stop_condition)
-        
-    elif limit_type == 'days':
-        limit = input("Enter the number of days to fetch reviews from (e.g., 30): ").strip()
+        return fetch_reviews(appid, limit, stop_condition)
 
-        while not limit.isdigit() or int(limit) <= 0 or int(limit) > 365:
-            limit = input("Please enter a valid positive integer for the number of days: ").strip()
+    # Days
+    limit = input("Enter number of days to fetch from (1-365): ").strip()
 
-        limit = int(limit)
-        cutoff_date = datetime.now() - timedelta(days=limit)
-        stop_condition = lambda review, _, __: datetime.fromtimestamp(review['timestamp_created']) < cutoff_date
-        print(f"Fetching reviews from the last {limit} days...")
-        return fetch_reviews(id, limit, stop_condition)
-          
-def fetch_reviews(id, limit, stop_condition):
-    reviews = [] # List to store all fetched reviews
-    encoded_cursor = "*" # Initial cursor for pagination
-    cursor_list = set() # List to track cursors for loop detection
-    page_signatures = set() # Set to track page signatures for loop detection
+    while not limit.isdigit() or not (1 <= int(limit) <= 365):
+        limit = input("Please enter a valid integer between 1 and 365: ").strip()
+
+    limit = int(limit)
+    cutoff_date = datetime.now() - timedelta(days=limit)
+
+    stop_condition = lambda review, _, __: (
+        datetime.fromtimestamp(review["timestamp_created"]) < cutoff_date
+    )
+
+    print(f"Fetching reviews from the last {limit} days...")
+    return fetch_reviews(appid, limit, stop_condition)
+
+def fetch_reviews(appid, limit, stop_condition):
+    """
+    Fetch reviews for a game using Steam's paginated review API.
+
+    Args:
+        appid (int): Steam AppID.
+        limit (int): Max number of reviews or day-range limit,
+                     depending on stop_condition logic.
+        stop_condition (callable): Determines when to stop pagination.
+
+    Returns:
+        list | None: List of collected review dictionaries, or None on error.
+    """
+
+    reviews = []
+    encoded_cursor = "*"
+    cursor_list = set()
+    page_signatures = set()
+
     while True:
-        page, encoded_cursor = fetch_review_page(id, encoded_cursor)
+        page, encoded_cursor = fetch_review_page(appid, encoded_cursor)
 
-        decision, signature = stop_pagination(page, encoded_cursor, cursor_list, page_signatures, reviews)
-        
+        # Decide how to handle this page
+        decision, signature = stop_pagination(
+            page, encoded_cursor, cursor_list, page_signatures, reviews
+        )
+
         if decision == "ERROR":
-            utils.log("Pagination Error", level="ERROR", **LOG)
-            return None
-        
-        elif decision == "STOP":
-            utils.log("No more pages or reviews found", level="INFO", **LOG)
+            return utils.error("fetch_reviews: Pagination error encountered.", LOG)
+
+        if decision == "STOP":
+            utils.info("fetch_reviews: No more pages available.", LOG)
             return reviews
-        
-        elif decision == "DUPLICATE":
-            utils.log("Duplicate page found, skipping", level="INFO", **LOG)
+
+        if decision == "DUPLICATE":
+            utils.info("fetch_reviews: Duplicate page skipped.", LOG)
             continue
 
-        elif decision == "CONTINUE":
-            cursor_list.add(encoded_cursor) # Add current cursor to the set
-            page_signatures.add(signature)
+        # Valid unique page
+        cursor_list.add(encoded_cursor)
+        page_signatures.add(signature)
 
-        for review in page['reviews']: # Process each review
+        # Process reviews in this page
+        for review in page["reviews"]:
+            reviews.append(review)
 
-            reviews.append(review) # Add review to the list
-
-            if stop_condition(review, reviews, limit): # Check stopping condition
-                utils.log(f"Stopping condition met after fetching {len(reviews)} reviews.", level="INFO", **LOG)
-                
+            # Stop early if limit is reached
+            if stop_condition(review, reviews, limit):
+                utils.info(
+                    f"fetch_reviews: Stopping condition reached "
+                    f"({len(reviews)} reviews collected).", LOG
+                )
                 return reviews
 
-def fetch_review_page(id, encoded_cursor):
-    url = f"https://store.steampowered.com/appreviews/{id}?json=1&filter=recent&language=english&purchase_type=all&review_type=all&num_per_page=100&cursor={encoded_cursor}"
-    reviews = None # Initialize variable to store the reviews response
-    reviews_data = None # Initialize variable to store the reviews data
-    message = None
+def fetch_review_page(appid, encoded_cursor):
+    """
+    Fetch a single page of Steam reviews for the given appid using the cursor.
 
-    try: # API call to get the reviews for the selected game
-        reviews = requests.get(url) 
-        reviews.raise_for_status()  # Ensure a successful response
-    
-    except requests.HTTPError as http_err: # Handle HTTP errors
-        message = f"HTTP error occurred: {http_err}"
-        utils.log(message, level="ERROR", **LOG)
-        return None, None
+    Args:
+        appid (int): Steam AppID.
+        encoded_cursor (str): URL-encoded cursor for pagination.
 
-    except requests.RequestException as e: # Handle other request-related errors
-        message = f"Request error occurred: {e}"
-        utils.log(message, level="ERROR", **LOG)
-        return None, None
+    Returns:
+        tuple: (page_data, next_encoded_cursor) or (None, None) on error.
+    """
+
+    url = (
+        f"https://store.steampowered.com/appreviews/{appid}"
+        f"?json=1&filter=recent&language=english&purchase_type=all"
+        f"&review_type=all&num_per_page=100&cursor={encoded_cursor}"
+    )
+
+    utils.info(f"Requesting review page for appid={appid}, cursor={encoded_cursor}", LOG)
 
     try:
-        reviews_data = reviews.json() # Parse the JSON response
+        response = requests.get(url, timeout=10)
+        response.raise_for_status()
+    except Exception as err:
+        return utils.error2(f"fetch_review_page: Request error ({err}).", LOG)
+
+    try:
+        page = response.json()
+    except Exception as err:
+        return utils.error2(f"fetch_review_page: JSON parse failure ({err}).", LOG)
         
-    except Exception as e:
-        message = f"Error parsing JSON response: {e}"
-        utils.log(message, level="ERROR", **LOG)
-        return None, None
+    if not utils.validate_review_page(page):
+        return utils.error2("fetch_review_page: Invalid page structure.", LOG)
 
-    if not utils.validate_review_page(reviews_data):
-        utils.log("Invalid review page structure received from API.", 
-                  level="ERROR", **LOG)
-        return None, None
-    
-    else:
-        utils.log(f"Fetched {len(reviews_data['reviews'])} reviews for game id {id}.", level="INFO", **LOG)
-        next_page = reviews_data['cursor'] # Get the cursor for the next page of reviews
-        encoded_cursor = quote(next_page) # URL-encode the cursor for the next page
+    utils.info(
+        f"fetch_review_page: Retrieved {len(page.get('reviews', []))} reviews.", LOG)
 
-        return reviews_data, encoded_cursor
+    next_cursor = page.get("cursor")
+    if next_cursor is None:
+        utils.info("fetch_review_page: No next cursor - end of pages.", LOG)
+        return page, None
 
-def save_reviews(selected_game, reviews, base_path="Pipeline/data/"):
+    return page, quote(next_cursor)
+
+def save_reviews(selected_game, reviews):
+    """
+    Save fetched reviews to raw JSON and cleaned CSV output directories.
+
+    Args:
+        selected_game (dict): Game dictionary with 'name' and 'id'.
+        reviews (list): List of review dictionaries.
+
+    Returns:
+        None
+    """
+
     if not reviews:
-        utils.log("No reviews fetched - skipping saving step", level="INFO", **LOG)
-        print("No reviews fetched - skipping saving step")
+        utils.info("save_reviews: No reviews to save.", LOG)
+        print("No reviews fetched - skipping save step.")
         return
-    
-    raw_path = os.path.join(base_path, "raw")
-    clean_path = os.path.join(base_path, "clean")
 
     if not utils.validate_selected_game(selected_game):
-        utils.log("Invalid selected game data - cannot save reviews.", level="ERROR", **LOG)
-        return None
+        return utils.error("save_reviews: Invalid selected_game data.", LOG)
 
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     game_name = selected_game["name"]
-    app_id = selected_game["id"]
-    safe_game_name = utils.sanitize_filename(game_name)
+    appid = selected_game["id"]
+    safe_name = utils.sanitize_filename(game_name)
 
+    # Attach metadata to each review
     for review in reviews:
         review["game_name"] = game_name
-        review["appid"] = app_id
+        review["appid"] = appid
 
-    filename_json = f"reviews_raw_{selected_game['id']}_{safe_game_name}_{timestamp}.json"
-    file_json = os.path.join(raw_path, filename_json)
-    
-    filename_csv = f"reviews_{selected_game['id']}__{safe_game_name}_{timestamp}.csv"
-    file_csv = os.path.join(clean_path, filename_csv)
+    # File paths
+    json_path = os.path.join(PIPE_RAW,
+        f"reviews_raw_{appid}_{safe_name}_{timestamp}.json")
+    csv_path = os.path.join(PIPE_CLEAN,
+        f"reviews_{appid}_{safe_name}_{timestamp}.csv")
 
-    for x in reviews:
-
-        if not utils.validate_single_review(x):
-            utils.log("Invalid review data detected - skipping review.", level="ERROR", **LOG)
-            continue
-
+    # Save JSON
     try:
-        with open(file_json, "w", encoding="utf-8") as f: # Save as json
-            json.dump(reviews, f, ensure_ascii=False, indent = 4)
-            utils.log(f"Saved reviews to {file_json}.", level="INFO", **LOG)
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(reviews, f, ensure_ascii=False, indent=4)
+        utils.info(f"Saved raw JSON to {json_path}", LOG)
+    except Exception as err:
+        return utils.error(f"save_reviews: JSON save error ({err}).", LOG)
 
-    except Exception as e:
-        utils.log(f"Error saving reviews to JSON: {e}", level="ERROR", **LOG)
-        return None
-
+    # Save CSV
     try:
-        with open(file_csv, "w", newline="", encoding="utf-8") as g:
+        with open(csv_path, "w", newline="", encoding="utf-8") as g:
             writer = csv.writer(g)
-            writer.writerow(["appid", "game_name", "review", "voted_up", "timestamp_created", "playtime_forever", "num_reviews"])
+            writer.writerow([
+                "appid", "game_name", "review", "voted_up",
+                "timestamp_created", "playtime_forever", "num_reviews"
+            ])
 
-            for x in reviews:
+            for r in reviews:
                 writer.writerow([
-                    x["appid"],
-                    x["game_name"],
-                    x["review"],
-                    x["voted_up"],
-                    x["timestamp_created"],
-                    x["author"]["playtime_forever"],
-                    x["author"]["num_reviews"]
+                    r["appid"],
+                    r["game_name"],
+                    r["review"],
+                    r["voted_up"],
+                    r["timestamp_created"],
+                    r["author"]["playtime_forever"],
+                    r["author"]["num_reviews"],
                 ])
-        utils.log(f"Saved reviews to {file_csv}.", level="INFO", **LOG)
 
-    except Exception as e:
-        utils.log(f"Error saving reviews to CSV: {e}", level="ERROR", **LOG)
-        return None
-    
-    utils.log(f"Saved {len(reviews)} reviews to {file_json} and {file_csv}.", level="INFO", **LOG)
+        utils.info(f"Saved cleaned CSV to {csv_path}", LOG)
+    except Exception as err:
+        return utils.error(f"save_reviews: CSV save error ({err}).", LOG)
+
+    utils.info(f"save_reviews: Completed - {len(reviews)} reviews saved.", LOG)
 
 def main():
-    print("Pipeline started...")
-    selected_game = None # Variable to store the selected game
-    
-    query = input("Enter the game name or id: ").strip() # Get user input for the game name or id
-    
-    results = search_games(query) # Search for games matching the input
+    """
+    CLI entry point for the review fetching pipeline.
 
-    selected_game = select_game(results) # Let user select the correct game from the results
-    
+    Workflow:
+        1. Prompt user for game name or ID.
+        2. Search Steam for matching games.
+        3. Allow the user to select and confirm a game.
+        4. Choose a fetch limit (number or days).
+        5. Fetch reviews with pagination.
+        6. Save reviews to raw JSON and cleaned CSV.
+    """
+
+    print("Pipeline started...")
+
+    # Ask for game name or AppID
+    query = input("Enter the game name or id: ").strip()
+
+    # Search Steam for matching games
+    results = search_games(query)
+
+    # User selects a game from the list
+    selected_game = select_game(results)
     if not selected_game:
         print("No game selected. Exiting pipeline.")
-        exit(0)
-    
-    appid = selected_game['id'] # Get the app id of the selected game
-    reviews = get_game_reviews(appid) # Fetch reviews for the selected game
-    save_reviews(selected_game, reviews) # Save the fetched reviews to files
+        return 1
+
+    appid = selected_game["id"]
+
+    # User chooses review limit type
+    reviews = get_game_reviews(appid)
+    if not reviews:
+        print("No reviews fetched. Exiting pipeline.")
+        return 1
+
+    # Write reviews to JSON and CSV
+    save_reviews(selected_game, reviews)
 
     return 0
 
