@@ -1,23 +1,22 @@
+import os
 import requests
 import json
 import csv
 from math import ceil
 from urllib.parse import quote
 from datetime import datetime, timedelta, date
-import utils.utils as utils
-import os
+
+from paths import PIPE_RAW, PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS
+from Pipeline.utils import utils
+
 
 LOG = {
-    "base_path": "Pipeline/logs/",
+    "base_path": PIPE_LOGS + "/",
     "filename": "pipeline_log.txt"
 }
 
-paths = [
-    "Pipeline/data/raw",
-    "Pipeline/data/clean",
-    "Pipeline/data/processed",
-    "Pipeline/logs/"
-]
+paths = [PIPE_RAW, PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS]
+
 
 utils.ensure_directory(paths)
 

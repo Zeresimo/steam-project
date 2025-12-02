@@ -2,22 +2,22 @@ import pandas as pd
 import matplotlib.pyplot as plt   
 import seaborn as sns     
 from datetime import datetime
-import os
 import wordcloud
 import nltk
-import utils.utils as utils
 import numpy as np
 
+from paths import EDA_PLOTS, EDA_WORDCLOUDS, EDA_LOGS
+from Pipeline.utils import utils
+
+
 LOG = {
-    "base_path": "../steam-project/EDA/logs/",
+    "base_path": EDA_LOGS + "/",
     "filename": "eda_log.txt"
 }
 
-paths = [
-    "../steam-project/EDA/plots",
-    "../steam-project/EDA/wordclouds",
-    "../steam-project/EDA/logs/"
-]
+
+paths = [EDA_PLOTS, EDA_WORDCLOUDS, EDA_LOGS]
+
 
 utils.ensure_directory(paths)
 

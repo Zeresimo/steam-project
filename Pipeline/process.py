@@ -1,20 +1,20 @@
+import os
 import pandas as pd
 import csv
-import os
 import glob
 from datetime import datetime, timedelta, date
-import utils.utils as utils
 
-LOG = { 
-    "base_path": "Pipeline/logs/",
+from paths import PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS
+from Pipeline.utils import utils
+
+
+LOG = {
+    "base_path": PIPE_LOGS + "/",
     "filename": "process_log.txt"
 }
 
-paths = [
-    "Pipeline/data/clean",
-    "Pipeline/data/processed",
-    "Pipeline/logs/"
-]
+paths = [PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS]
+
 
 utils.ensure_directory(paths)
 

@@ -1,17 +1,9 @@
 import pandas as pd
 import numpy as np
 import joblib
+import os
 
-import sys, os
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ML_DIR = os.path.join(ROOT, "ML")
-MODEL_DIR = os.path.join(ML_DIR, "models")
-LOG_DIR = os.path.join(ML_DIR, "logs")
-OUTPUT_DIR = os.path.join(ML_DIR, "output")
-
-
-
-
+from paths import MODEL_DIR, LOG_DIR, OUTPUT_DIR
 
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer

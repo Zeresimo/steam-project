@@ -1,17 +1,10 @@
-import sys, os
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-ML_DIR = os.path.join(ROOT, "ML")
-MODEL_DIR = os.path.join(ML_DIR, "models")
-LOG_DIR = os.path.join(ML_DIR, "logs")
-OUTPUT_DIR = os.path.join(ML_DIR, "output")
-
-
-
+import os
 import joblib
 import numpy as np
 import pandas as pd
 from datetime import datetime
 
+from paths import MODEL_DIR, LOG_DIR, OUTPUT_DIR
 from Pipeline.utils.utils import clean_text, log, ensure_directory
 
 LOG = {
