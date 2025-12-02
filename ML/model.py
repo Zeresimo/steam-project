@@ -1,8 +1,10 @@
 import pandas as pd
 import numpy as np
 import joblib
+import json
 import os
 
+from datetime import datetime
 from paths import MODEL_DIR, LOG_DIR, OUTPUT_DIR
 
 from sklearn.model_selection import train_test_split
@@ -20,13 +22,7 @@ from sklearn.metrics import (
     roc_curve
 )
 
-from Pipeline.utils.utils import (
-    get_latest_csv,
-    log,
-    ensure_directory,
-    clean_text,
-    validate_column_type
-)
+from Pipeline.utils import utils
 
 LOG = {
     "base_path": LOG_DIR + "/",
@@ -35,37 +31,43 @@ LOG = {
 
 paths = [LOG_DIR, MODEL_DIR, OUTPUT_DIR]
 
-ensure_directory(paths)
+utils.ensure_directory(paths)
 
 def load_model_data():
-    latest_file = get_latest_csv(LOG, base_path="Pipeline/data/processed")
+    """
+    Load the latest processed dataset and return review texts and labels.
 
+    Returns:
+        (Series, Series) or (None, None):
+            x: cleaned review text
+            y: integer sentiment labels (0/1)
+    """
+
+    latest_file = utils.get_latest_csv(LOG, base_path="Pipeline/data/processed")
     if not latest_file:
-        log("No file found for modeling", level="ERROR", **LOG)
-        return None, None
+        return utils.error2("load_model_data: No processed CSV file found.", LOG)
     
     try:
-        log(f"Latest processed CSV file found: {latest_file}", level = "INFO", **LOG)
+        utils.info(f"Loading processed CSV: {latest_file}", LOG)
         df = pd.read_csv(latest_file)
-        log(f"File read successfully, processing", level = "INFO", **LOG)
-        rows, columns = df.shape
-        log(f"Loaded processed dataset containing {rows} rows and {columns} columns", level = "INFO", **LOG)
+        utils.info(f"Loaded dataset with {len(df)} rows.", LOG)
     except Exception as e:
-        log(f"Error reading CSV file: {e}", level = "ERROR", **LOG)
-        return None, None
+        return utils.error2(f"Error reading CSV file: {e}", LOG)
 
+    # Remove missing reviews
     df = df.dropna(subset=['review'])
 
-    if not validate_column_type(df, "review", (str,)):
-        log("Review column validation error", level="ERROR", **LOG)
-        return None, None
-    if not validate_column_type(df, "voted_up", (bool, np.bool_)):
-        log("Voted_up column validation error", level="ERROR", **LOG)
-        return None, None
+    # Validate essential columns
+    if not utils.validate_column_type(df, "review", (str,)):
+        return utils.error2("load_model_data: Invalid 'review' column.", LOG)
 
-    df['review'] = df['review'].apply(clean_text)
+    if not utils.validate_column_type(df, "voted_up", (bool, np.bool_)):
+        return utils.error2("load_model_data: Invalid 'voted_up' column.", LOG)
+
+    # Clean text again for ML
+    df['review'] = df['review'].apply(utils.clean_text)
     df = df.dropna(subset=['review'])
-    log("Secondary Review text cleaning completed.", level = "INFO", **LOG)
+    utils.info("Secondary Review text cleaning completed.", LOG)
 
     df['voted_up'] = df['voted_up'].astype(int)
 
@@ -75,143 +77,317 @@ def load_model_data():
     return x, y
 
 def split_data(x, y):
-    log("Starting train/test split", level="INFO", **LOG)
+    """
+    Split review text and labels into training and test sets.
 
-    x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.2, random_state=42, stratify=y)
+    Args:
+        x (Series): Clean review text.
+        y (Series): Sentiment labels (0/1).
 
-    log("Train/test split successful", level="INFO", **LOG)
+    Returns:
+        tuple: (x_train, x_test, y_train, y_test)
+    """
 
-    log(f"Training Set Size {len(x_train)}", level="INFO", **LOG)
-    log(f"Testing Set Size {len(x_test)}", level="INFO", **LOG)
+    utils.info("split_data: Starting train/test split.", LOG)
 
-    log(f"Training Level Distribution: {y_train.value_counts()}", level="INFO", **LOG)
-    log(f"Testing Level Distribution: {y_test.value_counts()}", level="INFO", **LOG)
+    try:
+        x_train, x_test, y_train, y_test = train_test_split(
+            x, 
+            y, 
+            test_size=0.2, 
+            random_state=42, 
+            stratify=y
+        )
+    except Exception as err:
+        return utils.error2(f"split_data: Train/test split failed ({err}).", LOG)
+
+    utils.info("split_data: Train/test split completed.", LOG)
+    utils.info(f"split_data: Training size = {len(x_train)}, Test size = {len(x_test)}", LOG)
+    utils.info(f"split_data: Training label distribution:\n{y_train.value_counts()}", LOG)
+    utils.info(f"split_data: Test label distribution:\n{y_test.value_counts()}", LOG)
 
     return x_train, x_test, y_train, y_test
 
 def vectorize_text(x_train, x_test):
-    log("Starting TF-IDF vectorization", level="INFO", **LOG)
+    """
+    Fit a TF-IDF vectorizer on training text and transform both
+    training and test sets.
 
-    vectorizer = TfidfVectorizer(ngram_range=(1, 2), max_features=20000, min_df=2)
-    vectorizer.fit(x_train)
+    Args:
+        x_train (Series): Training review text.
+        x_test  (Series): Test review text.
 
-    x_train_vector = vectorizer.transform(x_train)
-    x_test_vector = vectorizer.transform(x_test)
+    Returns:
+        tuple:
+            - x_train_vector (sparse matrix)
+            - x_test_vector  (sparse matrix)
+            - vectorizer     (TfidfVectorizer)
+    """
 
-    log(f"Vocabulary Size: {len(vectorizer.vocabulary_)}", level="INFO", **LOG)
+    utils.info("vectorize_text: Starting TF-IDF vectorization.", LOG)
 
-    train_shape_x, train_shape_y = x_train_vector.shape
-    test_shape_x, test_shape_y = x_test_vector.shape
+    try:
+        vectorizer = TfidfVectorizer(
+            ngram_range=(1, 2), 
+            max_features=20000, 
+            min_df=2
+        )
+        vectorizer.fit(x_train)
 
-    log(f"Shape of training vector: {train_shape_x} rows, {train_shape_y} columns", level="INFO", **LOG)
-    log(f"Shape of test vector: {test_shape_x} rows, {test_shape_y} columns", level="INFO", **LOG)
-    log("TF-IDF vectorization completed successfully", level="INFO", **LOG)
+        x_train_vec = vectorizer.transform(x_train)
+        x_test_vec = vectorizer.transform(x_test)
 
-    return x_train_vector, x_test_vector, vectorizer
+    except Exception as err:
+        return utils.error2(f"vectorize_text: Vectorization failed ({err}).", LOG)
+
+    utils.info(f"vectorize_text: Vocabulary size = {len(vectorizer.vocabulary_)}", LOG)
+    utils.info(f"vectorize_text: Training vector shape = {x_train_vec.shape}", LOG)
+    utils.info(f"vectorize_text: Test vector shape = {x_test_vec.shape}", LOG)
+    utils.info("vectorize_text: TF-IDF vectorization completed.", LOG)
+
+    return x_train_vec, x_test_vec, vectorizer
 
 def train_logistic_regression(x_train_vec, y_train):
-    log("Starting training using logistic regression", level="INFO", **LOG)
+    """
+    Train a Logistic Regression classifier on the TF-IDF vectors.
 
-    log_reg_model = LogisticRegression(max_iter=2000,solver="liblinear")
-    log_reg_model.fit(x_train_vec, y_train)
+    Args:
+        x_train_vec (sparse matrix): Vectorized training text.
+        y_train     (Series): Training labels.
 
-    log("Logistic Regression training completed", level="INFO", **LOG)
-    log(f"Model classes: {log_reg_model.classes_}", level="INFO", **LOG)
+    Returns:
+        model (LogisticRegression) or None on failure.
+    """
 
-    return log_reg_model
+    utils.info("train_logistic_regression: Starting training.", LOG)
+
+    try:
+        model = LogisticRegression(
+            max_iter=2000,
+            solver="liblinear"
+        )
+        model.fit(x_train_vec, y_train)
+    except Exception as err:
+        return utils.error(f"train_logistic_regression: Training failed ({err}).", LOG)
+
+    utils.info("train_logistic_regression: Training completed.", LOG)
+    utils.info(f"train_logistic_regression: Model classes = {list(model.classes_)}", LOG)
+
+    return model
 
 def train_naive_bayes(x_train_vec, y_train):
-    log("Training Multinomial Naive Bayes model", level="INFO", **LOG)
+    """
+    Train a Multinomial Naive Bayes classifier.
 
-    naive_bayes_model = MultinomialNB()
-    naive_bayes_model.fit(x_train_vec, y_train)
+    Args:
+        x_train_vec (sparse matrix): Vectorized training text.
+        y_train     (Series): Training labels.
 
-    log("Naive Bayes training completed", level="INFO", **LOG)
+    Returns:
+        model (MultinomialNB) or None on failure.
+    """
 
-    return naive_bayes_model
+    utils.info("train_naive_bayes: Starting training.", LOG)
+
+    try:
+        model = MultinomialNB()
+        model.fit(x_train_vec, y_train)
+    except Exception as err:
+        return utils.error(f"train_naive_bayes: Training failed ({err}).", LOG)
+
+    utils.info("train_naive_bayes: Training completed.", LOG)
+    return model
 
 def evaluate_model(model, x_test_vec, y_test, model_type="NONE"):
-    report_dict = {}
-    log(f"Starting model evaluation for {model_type}", level="INFO", **LOG)
+    """
+    Evaluate a trained model on test data and return metrics.
 
-    y_prediction = model.predict(x_test_vec)
+    Args:
+        model: Trained classifier.
+        x_test_vec (matrix): Vectorized test text.
+        y_test (Series): True sentiment labels.
+        model_type (str): Name of the model (for logging).
 
-    report_dict['accuracy'] = accuracy_score(y_test, y_prediction)
-    report_dict['precision'] = precision_score(y_test, y_prediction)
-    report_dict['recall'] = recall_score(y_test, y_prediction)
-    report_dict['f1'] = f1_score(y_test, y_prediction)
+    Returns:
+        dict: Dictionary of evaluation metrics.
+    """
 
-    log(
-    f"Metrics produced: Accuracy: {report_dict['accuracy']}, "
-    f"Precision: {report_dict['precision']}, "
-    f"Recall: {report_dict['recall']}, "
-    f"F1: {report_dict['f1']}",
-    level="INFO",
-    **LOG
+    utils.info(f"evaluate_model: Evaluating model [{model_type}].", LOG)
+    report = {}
+    
+    try:
+        y_pred = model.predict(x_test_vec)
+    except Exception as err:
+        return utils.error(f"evaluate_model: Prediction failed ({err}).", LOG)
+    
+    # Core metrics
+    report['accuracy'] = accuracy_score(y_test, y_pred)
+    report['precision'] = precision_score(y_test, y_pred)
+    report['recall'] = recall_score(y_test, y_pred)
+    report['f1'] = f1_score(y_test, y_pred)
+
+    utils.info(
+    f"Metrics produced: Accuracy: {report['accuracy']}, "
+    f"Precision: {report['precision']}, "
+    f"Recall: {report['recall']}, "
+    f"F1: {report['f1']}",
+    LOG
     )
 
-    report = classification_report(y_test, y_prediction)
-    log("Classification Report: \n" + report, level="INFO", **LOG)
+    # Classification report (text form)
+    cls_report = classification_report(y_test, y_pred)
+    utils.info(f"evaluate_model: Classification Report:\n{cls_report}", LOG)
 
-    report_dict['conf_matrix'] = confusion_matrix(y_test, y_prediction)
-    log("Confusion Matrix:\n" + str(report_dict['conf_matrix']), level="INFO", **LOG)
-    report_dict['conf_matrix'] = report_dict['conf_matrix'].tolist()
+    # Confusion matrix
+    cm = confusion_matrix(y_test, y_pred)
+    report["conf_matrix"] = cm.tolist()
+    utils.info(f"evaluate_model: Confusion Matrix:\n{cm}", LOG)
 
+    # ROC AUC (if supported by model)
     if hasattr(model, "predict_proba"):
-        y_probability = model.predict_proba(x_test_vec)[:, 1]
-        report_dict['roc_auc'] = roc_auc_score(y_test, y_probability)
-        log(f"ROC AUC: {report_dict['roc_auc']}", level="INFO", **LOG)
-
+        try: 
+            y_prob = model.predict_proba(x_test_vec)[:, 1]
+            report["roc_auc"] = roc_auc_score(y_test, y_prob)
+            utils.info(f"evaluate_model: ROC AUC = {report['roc_auc']:.4f}", LOG)
+        except Exception:
+            utils.info("evaluate_model: ROC AUC skipped — probability prediction failed.", LOG)
     else:
-        log("ROC AUC skipped: this model does not support probability predictions", level="INFO", **LOG)
+        utils.info("evaluate_model: ROC AUC skipped — model lacks predict_proba().", LOG)
 
-
-    return report_dict
+    return report
 
 def save_model_and_vectorizer(model, vectorizer, name):
-    log(f"Saving model and vectorizer for {name}", level="INFO", **LOG)
+    """
+    Save a trained model and its TF-IDF vectorizer.
 
-    filename = name
-    file_path = MODEL_DIR
-    vec_path = os.path.join(file_path, filename + "_vectorizer.joblib")
-    model_path = os.path.join(file_path, filename + "_model.joblib")
+    Args:
+        model: Trained ML model.
+        vectorizer: TfidfVectorizer instance.
+        name (str): Base filename for saving.
 
+    Returns:
+        bool: True on success, False on failure.
+    """
+
+    utils.info(f"save_model_and_vectorizer: Saving artifacts for [{name}].", LOG)
+
+    model_path = os.path.join(MODEL_DIR, f"{name}_model.joblib")
+    vec_path = os.path.join(MODEL_DIR, f"{name}_vectorizer.joblib")
+
+    # Save model
     try:
         joblib.dump(model, model_path)
-        log(f"Saved model: {model_path}", level="INFO", **LOG)
-
-    except Exception as e:
-        log(f"Error saving model: {e}", level="ERROR", **LOG)
+        utils.info(f"save_model_and_vectorizer: Model saved - {model_path}", LOG)
+    except Exception as err:
+        utils.error(f"save_model_and_vectorizer: Failed to save model ({err}).", LOG)
         return False
 
+    # Save vectorizer
     try:
         joblib.dump(vectorizer, vec_path)
-        log(f"Saved vectorizer: {vec_path}", level="INFO", **LOG)
-    except Exception as e:
-        log(f"Error saving vectorizer: {e}", level="ERROR", **LOG)
+        utils.info(f"save_model_and_vectorizer: Vectorizer saved - {vec_path}", LOG)
+    except Exception as err:
+        utils.error(f"save_model_and_vectorizer: Failed to save vectorizer ({err}).", LOG)
         return False
-    
+
     return True
 
+def save_evaluation_report(metrics, name):
+    """
+    Save evaluation metrics to a JSON file.
+
+    Args:
+        metrics (dict): Evaluation metrics returned by evaluate_model().
+        name (str): Base name of the model (e.g., "logistic_regression").
+
+    Returns:
+        bool: True on success, False on failure.
+    """
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"{name}_metrics_{timestamp}.json"
+    output_path = os.path.join(OUTPUT_DIR, filename)
+
+    try:
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump(metrics, f, indent=4)
+        utils.info(f"save_evaluation_report: Saved metrics → {output_path}", LOG)
+        return True
+
+    except Exception as err:
+        utils.error(f"save_evaluation_report: Failed to save metrics ({err}).", LOG)
+        return False
+
 def main():
+    """
+    Full ML training pipeline:
+        1. Load processed data
+        2. Split into train/test
+        3. Vectorize text
+        4. Train Logistic Regression and Naive Bayes
+        5. Evaluate both models
+        6. Save both models + vectorizer
+
+    Returns:
+        int: 0 on success, 1 on failure.
+    """
+
+    # Load data
     x, y = load_model_data()
-    x_train, x_test, y_train, y_test = split_data(x, y)
-    train_vector, test_vector, vectorizer = vectorize_text(x_train, x_test)
-    model_lr = train_logistic_regression(train_vector, y_train)
-    model_nb = train_naive_bayes(train_vector, y_train)
+    if x is None or y is None:
+        return utils.error("main: Failed to load training data.", LOG) or 1
 
-    metrics_lr = evaluate_model(model_lr, test_vector, y_test, model_type="Logistic Regression")
-    metrics_nb = evaluate_model(model_nb, test_vector, y_test, model_type="Naive Bayes")
+    # Train/test split
+    split = split_data(x, y)
+    if split[0] is None:
+        return utils.error("main: Train/test split failed.", LOG) or 1
 
-    if save_model_and_vectorizer(model_lr, vectorizer, "logistic_regression"):
-        log("Successfully saved Logistic Regression model and vectorizer", level="INFO", **LOG)
+    x_train, x_test, y_train, y_test = split
+
+    # Vectorize text
+    vec_result = vectorize_text(x_train, x_test)
+    if vec_result[0] is None:
+        return utils.error("main: Vectorization failed.", LOG) or 1
+
+    x_train_vec, x_test_vec, vectorizer = vec_result
+
+    # Train models
+    model_lr = train_logistic_regression(x_train_vec, y_train)
+    if model_lr is None:
+        return utils.error("main: Logistic Regression training failed.", LOG) or 1
+
+    model_nb = train_naive_bayes(x_train_vec, y_train)
+    if model_nb is None:
+        return utils.error("main: Naive Bayes training failed.", LOG) or 1
+
+    # Evaluate models
+    metrics_lr = evaluate_model(model_lr, x_test_vec, y_test, model_type="Logistic Regression")
+    metrics_nb = evaluate_model(model_nb, x_test_vec, y_test, model_type="Naive Bayes")
+
+    # Save evaluation reports
+    if save_evaluation_report(metrics_lr, "logistic_regression"):
+        utils.info("main: Saved Logistic Regression evaluation report.", LOG)
     else:
-        log("Saving failed for Logistic Regression model and vectorizer", level="ERROR", **LOG)
+        return utils.error("main: Failed to save Logistic Regression evaluation report.", LOG) or 1
+
+    if save_evaluation_report(metrics_nb, "naive_bayes"):
+        utils.info("main: Saved Naive Bayes evaluation report.", LOG)
+    else:
+        return utils.error("main: Failed to save Naive Bayes evaluation report.", LOG) or 1
+
+    # Save artifacts 
+    if save_model_and_vectorizer(model_lr, vectorizer, "logistic_regression"):
+        utils.info("main: Saved Logistic Regression model and vectorizer.", LOG)
+    else:
+        return utils.error("main: Failed to save Logistic Regression artifacts.", LOG) or 1
 
     if save_model_and_vectorizer(model_nb, vectorizer, "naive_bayes"):
-        log("Successfully saved Naive Bayes model and vectorizer", level="INFO", **LOG)
+        utils.info("main: Saved Naive Bayes model and vectorizer.", LOG)
     else:
-        log("Saving failed for Naive Bayes model and vectorizer", level="ERROR", **LOG)
+        return utils.error("main: Failed to save Naive Bayes artifacts.", LOG) or 1
+
+    utils.info("main: Model training pipeline completed successfully.", LOG)
+    return 0
 
 if __name__ == "__main__":
     main()
