@@ -1,8 +1,5 @@
 import os
 import pandas as pd
-import csv
-import glob
-from datetime import datetime, timedelta, date
 
 from paths import PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS
 from Pipeline.utils import utils
@@ -14,78 +11,126 @@ LOG = {
 }
 
 paths = [PIPE_CLEAN, PIPE_PROCESSED, PIPE_LOGS]
-
-
 utils.ensure_directory(paths)
 
 def clean_rows(df):
-    print(df.dtypes)
+    """
+    Perform structural cleaning on the raw reviews DataFrame.
+
+    Steps:
+        - Ensure required columns exist.
+        - Remove rows with missing review text.
+        - Remove duplicates.
+        - Remove rows with invalid review content.
+
+    Args:
+        df: Pandas DataFrame loaded from raw CSV.
+
+    Returns:
+        Cleaned DataFrame or None if validation fails.
+
+    NOTES:
+        This does not clean text content yet — only structural issues.
+    """
+
+    # Validate required columns
     if not utils.validate_dataframe_columns(df):
-        utils.log("Data Frame validation failed during cleaning.", level = "ERROR", **LOG)
-        return None
-    
-    df = df.dropna(subset=['review']) # Drop rows with missing critical fields
-    df = df.drop_duplicates() # Remove duplicate rows
-    df = df[df['review'].apply(utils.validate_review_text)] # Keep only rows with valid review text
+        return utils.error("Data Frame validation failed during cleaning.", LOG)
+        
+    # Drop rows missing review text
+    df = df.dropna(subset=['review'])
+
+    # Remove duplicate rows
+    df = df.drop_duplicates()
+
+    # Filter out invalid review content
+    df = df[df['review'].apply(utils.validate_review_text)]
     
     return df
     
 def clean_reviews(text):
+    """
+    Clean a single review's text.
+
+    Steps:
+        - Validate text is non-empty and meaningful.
+        - Clean text with utils.clean_text().
+        - Return None if cleaning produces empty text.
+
+    Args:
+        text: Raw review string.
+
+    Returns:
+        Cleaned text string or None if invalid.
+    """
+
     if not utils.validate_review_text(text):
-        utils.log("Invalid review text encountered during cleaning.", level = "ERROR", **LOG)
-        return None
+        return utils.error("Invalid review text encountered during cleaning.", LOG)
 
     cleaned = utils.clean_text(text)
-    
-    if cleaned.strip() == "":
-        return None
-    
-    return cleaned
+    return cleaned.strip() or None
 
 def main():
-    latest_file = utils.get_latest_csv(LOG, base_path="Pipeline/data/clean")
+    """
+    Main processing pipeline for converting raw cleaned CSV files into fully
+    processed datasets.
 
+    Workflow:
+        1. Load latest CSV from PIPE_CLEAN.
+        2. Apply structural cleaning (clean_rows).
+        3. Apply text cleaning (clean_reviews).
+        4. Drop failed rows.
+        5. Save to PIPE_PROCESSED.
+
+    Returns:
+        0 on success, 1 on failure.
+    """
+    # Get latest cleaned CSV file
+    latest_file = utils.get_latest_csv(LOG, base_path=PIPE_CLEAN)
     if latest_file is None:
-        utils.log("No CSV files to process. Exiting.", level = "ERROR", **LOG)
-        return 1 # Exit if no file found
+        utils.error("No CSV files to process. Exiting.", LOG)
+        return 1 
     
-    cleaned_file_path = os.path.join("Pipeline/data/processed", f"cleaned_{os.path.basename(latest_file)}")
+    cleaned_file_path = os.path.join(PIPE_PROCESSED, f"cleaned_{os.path.basename(latest_file)}")
     
-    utils.log(f"Processing file: {latest_file}", level = "INFO", **LOG)
+    utils.info(f"Processing file: {latest_file}", LOG)
 
+    # Load CSV
     try:
         unclean_df = pd.read_csv(latest_file)
-        utils.log("CSV file read successfully.", level = "INFO", **LOG)
-    except Exception as e:
-        utils.log(f"Error reading CSV file: {e}", level = "ERROR", **LOG)
-        return 1 # Exit if reading fails
-
+        utils.info("CSV file read successfully.", LOG)
+    except Exception as err:
+        utils.error(f"Error reading CSV file: {err}", LOG)
+        return 1
+    
+    # Structural cleaning (drop duplicates, invalid rows)
     temp_df = clean_rows(unclean_df)
-
     if temp_df is None:
-        utils.log("Data cleaning failed. Exiting process.", level = "ERROR", **LOG)
-        return 1 # Exit if cleaning failed
+        utils.error("Data cleaning failed. Exiting process.", LOG)
+        return 1 
     
     try:
-        utils.log("Starting review text cleaning.", level = "INFO", **LOG)
+        utils.info("Starting review text cleaning.", LOG)
 
+        # Clean review text
         temp_df['review'] = temp_df['review'].apply(clean_reviews)
 
-        temp_df = temp_df.dropna(subset=['review']) # Drop rows where review text became None after cleaning
+        # Remove rows that failed text cleaning
+        temp_df = temp_df.dropna(subset=['review'])
 
-        utils.log("Review text cleaning completed.", level = "INFO", **LOG)
+        utils.info("Review text cleaning completed.", LOG)
 
         if temp_df.empty:
-            utils.log("No valid reviews remain after cleaning. Exiting process.", level = "ERROR", **LOG)
-            return 1 # Exit if no data remains
-
+            utils.error("No valid reviews remain after cleaning. Exiting process.", LOG)
+            return 1
+        
+        # Save processed dataset
         temp_df.to_csv(cleaned_file_path, index=False)
+        utils.info(f"Cleaned data saved to: {cleaned_file_path}", LOG)
 
-        utils.log(f"Cleaned data saved to: {cleaned_file_path}", level = "INFO", **LOG)
-
-    except Exception as e:
-        utils.log(f"Error during review text cleaning: {e}", level = "ERROR", **LOG)
-        return 1 # Exit if cleaning fails
+    except Exception as err:
+        utils.error(f"Error during review text cleaning: {err}", LOG)
+        return 1 
 
     return 0
 
