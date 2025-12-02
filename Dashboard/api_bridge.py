@@ -1,70 +1,137 @@
-import sys, os
+import os
+import sys
+import pandas as pd
 
+# Ensure project root is in sys.path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from paths import ROOT
+from Pipeline.pipeline import search_games, fetch_reviews
+from Pipeline.utils import utils
 
-from Pipeline.pipeline import search_games, fetch_reviews, save_reviews
-from Pipeline.process import clean_reviews
-from Pipeline.utils.utils import clean_text, validate_single_review
-import pandas as pd
-
-
+# API Wrapper: Search Games
 def api_search_games(query):
-    """Search Steam for games using your existing pipeline function."""
+    """
+    Wrapper for search_games() used by the dashboard.
+
+    Args:
+        query (str): Game name or search text.
+
+    Returns:
+        list: Search results or empty list.
+    """
+
     results = search_games(query)
     if results is None:
+        utils.error("api_search_games: search_games() returned None.", None)
         return []
+
     return results
 
-
+# API Wrapper: Fetch Reviews
 def api_fetch_reviews(appid, limit):
-    """Fetch N live reviews for the given game."""
-    # Use your pipeline’s core fetch function
-    # We bypass interactive input by directly calling fetch_reviews()
-    stop_condition = lambda review, reviews, limit: len(reviews) >= limit
+    """
+    Fetch *limit* reviews for use in the dashboard.
+
+    Args:
+        appid (int): Steam AppID.
+        limit (int): Max number of reviews.
+
+    Returns:
+        list | None: List of review dicts, or None on failure.
+    """
+
+    utils.info(f"api_fetch_reviews: Fetching {limit} reviews for appid={appid}.", None)
+
+    stop_condition = lambda review, reviews, lim: len(reviews) >= lim
+
     reviews = fetch_reviews(appid, limit, stop_condition)
+
+    if reviews is None:
+        utils.error("api_fetch_reviews: fetch_reviews() returned None.", None)
+        return None
+
     return reviews
 
-
+# API Wrapper: Clean Reviews + Predict
 def api_clean_and_predict(reviews, model, vectorizer, appid, game_name):
-    """Clean reviews and run predictions using your model."""
+    """
+    Clean raw reviews and run predictions in batch for the dashboard.
+
+    Args:
+        reviews (list): List of raw review dictionaries.
+        model: Trained ML model.
+        vectorizer: TF-IDF vectorizer.
+        appid (int): Steam AppID.
+        game_name (str): Name of the selected game.
+
+    Returns:
+        pd.DataFrame: Cleaned + predicted dataset.
+    """
+
+    if reviews is None or len(reviews) == 0:
+        utils.error("api_clean_and_predict: No reviews received.", None)
+        return pd.DataFrame()
+
+    utils.info(f"api_clean_and_predict: Cleaning and predicting {len(reviews)} reviews.", None)
+
     cleaned = []
     texts = []
 
+    # Clean each review
     for r in reviews:
-        # Clean review text
-        ct = clean_text(r["review"])
-        if ct.strip() == "":
+        raw_text = r.get("review", "")
+        cleaned_text = utils.clean_text(raw_text)
+
+        if not cleaned_text.strip():
             continue
 
-        texts.append(ct)
+        texts.append(cleaned_text)
+
         cleaned.append({
             "appid": appid,
             "game_name": game_name,
-            "original_review": r["review"],
-            "cleaned_review": ct,
-            "timestamp_created": r["timestamp_created"],
-            "playtime_forever": r["author"]["playtime_forever"],
-            "num_reviews": r["author"]["num_reviews"],
-            "voted_up": r["voted_up"],
+            "original_review": raw_text,
+            "cleaned_review": cleaned_text,
+            "timestamp_created": r.get("timestamp_created"),
+            "playtime_forever": r.get("author", {}).get("playtime_forever"),
+            "num_reviews": r.get("author", {}).get("num_reviews"),
+            "voted_up": r.get("voted_up")
         })
 
+    if len(cleaned) == 0:
+        utils.error("api_clean_and_predict: All reviews filtered out after cleaning.", None)
+        return pd.DataFrame()
 
     # Vectorize in one batch
-    X = vectorizer.transform(texts)
-    preds = model.predict(X)
+    try:
+        X = vectorizer.transform(texts)
+    except Exception as err:
+        utils.error(f"api_clean_and_predict: Vectorization failed ({err}).", None)
+        return pd.DataFrame()
 
-    conf = None
+    # Predict in one batch
+    try:
+        preds = model.predict(X)
+    except Exception as err:
+        utils.error(f"api_clean_and_predict: Prediction failed ({err}).", None)
+        return pd.DataFrame()
+
+    # Confidence scores (if supported)
+    confidence = None
     if hasattr(model, "predict_proba"):
-        conf = model.predict_proba(X)[:, 1]
-
+        try:
+            confidence = model.predict_proba(X)[:, 1]
+        except Exception:
+            utils.info("api_clean_and_predict: predict_proba failed; confidence omitted.", None)
+    
     # Attach predictions
-    for i in range(len(cleaned)):
-        cleaned[i]["predicted_sentiment"] = "Positive" if preds[i] == 1 else "Negative"
-        cleaned[i]["confidence"] = float(conf[i]) if conf is not None else None
+    for i, row in enumerate(cleaned):
+        sentiment = "Positive" if preds[i] == 1 else "Negative"
+        row["predicted_sentiment"] = sentiment
+        row["confidence"] = float(confidence[i]) if confidence is not None else None
 
     df = pd.DataFrame(cleaned)
     return df
