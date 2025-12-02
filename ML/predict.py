@@ -5,141 +5,178 @@ import pandas as pd
 from datetime import datetime
 
 from paths import MODEL_DIR, LOG_DIR, OUTPUT_DIR
-from Pipeline.utils.utils import clean_text, log, ensure_directory
+from Pipeline.utils import utils
 
 LOG = {
     "base_path": LOG_DIR + "/",
     "filename": "ML_predict_log.txt"
 }
 
-
 paths = [LOG_DIR, MODEL_DIR, OUTPUT_DIR]
-
-
-
-ensure_directory(paths)
+utils.ensure_directory(paths)
 
 def load_model(name):
-    file_path = MODEL_DIR
-    vector_name = name + "_vectorizer.joblib"
-    model_name = name + "_model.joblib"
-    model_path = os.path.join(file_path, model_name )
-    vector_path = os.path.join(file_path, vector_name)
+    """
+    Load a saved model and its vectorizer from disk.
 
+    Args:
+        name (str): Base model name (e.g., 'logistic_regression').
+
+    Returns:
+        (model, vectorizer) or (None, None) on failure.
+    """
+
+    model_path = os.path.join(MODEL_DIR, f"{name}_model.joblib")
+    vector_path = os.path.join(MODEL_DIR, f"{name}_vectorizer.joblib")
+
+    # Load model
     try:
-        log(f"Loading {name} model", level="INFO", **LOG)
+        utils.info(f"load_model: Loading model [{name}].", LOG)
         model = joblib.load(model_path)
-        log(f"Successfully loaded {name} model", level="INFO", **LOG)
-        
-    except Exception as e:
-        log(f"Error loading {name} model", level="ERROR", **LOG)
-        return None, None
+    except Exception as err:
+        return utils.error2(f"load_model: Failed to load model ({err}).", LOG)
 
+    # Load vectorizer
     try:
-        log(f"Loading {name} vectorizer", level="INFO", **LOG)
-        vector = joblib.load(vector_path)
-        log(f"Successfully loaded {name} vectorizer", level="INFO", **LOG)
+        utils.info(f"load_model: Loading vectorizer [{name}].", LOG)
+        vectorizer = joblib.load(vector_path)
+    except Exception as err:
+        return utils.error2(f"load_model: Failed to load vectorizer ({err}).", LOG)
 
-    except Exception as e:
-        log(f"Error loading {name} vectorizer", level="ERROR", **LOG)
-        return None, None
-    
-    return model, vector
+    utils.info(f"load_model: Successfully loaded model + vectorizer [{name}].", LOG)
+    return model, vectorizer
 
 def predict_review(text, model_name):
-    model, vectorizer = load_model(model_name)
-    if not model:
-        log("Model was not loaded properly", level="ERROR", **LOG)
-        return
-    
-    if not vectorizer:
-        log("Vectorizer was not loaded properly", level="ERROR", **LOG)
-        return
+    """
+    Predict the sentiment of a single review.
 
-    log(f"Running prediction using {model_name}", level="INFO", **LOG)
-    cleaned = clean_text(text)
-    
+    Args:
+        text (str): Raw review text.
+        model_name (str): Model base name (e.g. 'logistic_regression').
+
+    Returns:
+        dict | None:
+            {
+                "cleaned_text": str,
+                "sentiment": "Positive" | "Negative",
+                "confidence": float | None
+            }
+    """
+
+    model, vectorizer = load_model(model_name)
+    if model is None or vectorizer is None:
+        return utils.error("predict_review: Model or vectorizer not loaded.", LOG)
+
+    utils.info(f"predict_review: Running prediction with [{model_name}].", LOG)
+
+    # Clean review text
+    cleaned = utils.clean_text(text)
+
+    # Vectorize
     try:
         vectorized = vectorizer.transform([cleaned])
-        log(f"Vectorize successful", level="INFO", **LOG)
-    except Exception as e:
-        log(f"Vectorize unsuccessful: {e}", level="ERROR", **LOG)
-        return
+        utils.info("predict_review: Vectorization successful.", LOG)
+    except Exception as err:
+        return utils.error(f"predict_review: Vectorization failed ({err}).", LOG)
 
+    # Predict label
     try:
-        prediction = model.predict(vectorized)[0]
-        if prediction == 1:
-            prediction = "Positive"
-        else:
-            prediction = "Negative"
-        log(f"Prediction successful: {prediction}", level="INFO", **LOG)
+        pred_label = model.predict(vectorized)[0]
+        sentiment = "Positive" if pred_label == 1 else "Negative"
+        utils.info(f"predict_review: Prediction = {sentiment}.", LOG)
+    except Exception as err:
+        return utils.error(f"predict_review: Prediction failed ({err}).", LOG)
 
-    except Exception as e:
-        log(f"Prediction unsuccessful: {e}", level="ERROR", **LOG)
-        return
-    
+    # Compute confidence (if available)
+    confidence = None
     if hasattr(model, "predict_proba"):
-        confidence = model.predict_proba(vectorized)[0][1]
-        confidence = float(confidence)
-        log(f"Confidence Score: {confidence}", level="INFO", **LOG)
-
-    else:
-        confidence = None
+        try:
+            confidence = float(model.predict_proba(vectorized)[0][1])
+            utils.info(f"predict_review: Confidence = {confidence:.4f}.", LOG)
+        except Exception:
+            utils.info("predict_review: Confidence unavailable.", LOG)
 
     return {
         "cleaned_text": cleaned,
-        "sentiment": prediction,
+        "sentiment": sentiment,
         "confidence": confidence
     }
 
 def run_single_prediction_loop(model_name):
+    """
+    Interactive loop for predicting sentiment on individual user-entered reviews.
+
+    Args:
+        model_name (str): Model base name (e.g. 'logistic_regression').
+
+    Returns:
+        None
+    """
 
     while True:
-        text = input("Enter review (or 'back'): ")
+        text = input("Enter review (or 'back'): ").strip()
 
         if text.lower() == "back":
-            break
+            return
+
+        if text == "":
+            print("Please enter a non-empty review.")
+            continue
 
         result = predict_review(text, model_name)
 
         if result is None:
             print("Prediction failed. Check logs.")
+            utils.error("run_single_prediction_loop: Prediction returned None.", LOG)
             continue
 
-        print("Sentiment:", result['sentiment'])
-        print("Confidence:", result['confidence'])
+        sentiment = result["sentiment"]
+        confidence = result["confidence"]
+
+        print(f"Sentiment: {sentiment}")
+        print(f"Confidence: {confidence if confidence is not None else 'N/A'}")
 
 def run_batch_prediction(model_name, override_input_file=None):
-    if override_input_file is not None:
-        file_path = override_input_file
-    else:
-        file_path = input("Enter the file path (.txt or .csv): ").strip()
+    """
+    Run sentiment prediction on a batch of reviews from a .txt or .csv file.
 
-    # Validate path
+    Args:
+        model_name (str): Base name of the model.
+        override_input_file (str | None): If provided, bypass user input 
+                                          and load the specified file.
+
+    Returns:
+        str | None: Output CSV filename or None on failure.
+    """
+
+    
+    # Get file path
+    file_path = override_input_file or input("Enter the file path (.txt or .csv): ").strip()
+
     if not os.path.isfile(file_path):
-        print("File not found. Please check the path.")
-        log(f"Batch file not found: {file_path}", level="ERROR", **LOG)
-        return
+        utils.error(f"run_batch_prediction: File not found → {file_path}", LOG)
+        print("File not found. Check the path.")
+        return None
 
-    log(f"Starting batch prediction using {model_name}", level="INFO", **LOG)
+    utils.info(f"run_batch_prediction: Starting batch prediction with [{model_name}].", LOG)
     print("\n----- Batch Prediction Results -----\n")
 
     results = []
 
-    # Case 1: CSV file
+    # Handle CSV files
     if file_path.lower().endswith(".csv"):
 
         try:
             df = pd.read_csv(file_path)
-        except Exception as e:
+        except Exception as err:
+            utils.error(f"run_batch_prediction: Failed to read CSV ({err}).", LOG)
             print("Could not read CSV file.")
-            log(f"Error reading CSV file: {e}", level="ERROR", **LOG)
-            return
+            return None
 
         if "review" not in df.columns:
+            utils.error("run_batch_prediction: CSV missing 'review' column.", LOG)
             print("CSV must contain a 'review' column.")
-            log("CSV missing 'review' column.", level="ERROR", **LOG)
-            return
+            return None
 
         reviews = df["review"].dropna().tolist()
 
@@ -147,83 +184,126 @@ def run_batch_prediction(model_name, override_input_file=None):
             result = predict_review(review, model_name)
 
             if result is None:
-                print("Prediction failed. Check logs.")
+                print(f"Row {idx+1}: Prediction failed.")
+                utils.error("run_batch_prediction: Prediction returned None.", LOG)
                 continue
 
-            conf = result['confidence'] if result['confidence'] is not None else "N/A"
-            print(f"Row {idx+1}: {result['sentiment']} (Confidence={conf})")
+            sentiment = result["sentiment"]
+            conf = result["confidence"] if result["confidence"] is not None else "N/A"
+
+            print(f"Row {idx+1}: {sentiment} (Confidence={conf})")
 
             results.append({
                 "original_text": review,
                 "cleaned_text": result["cleaned_text"],
-                "sentiment": result["sentiment"],
+                "sentiment": sentiment,
                 "confidence": result["confidence"]
             })
 
-    # Case 2: TXT file
+    
+    # Handle TXT files
     elif file_path.lower().endswith(".txt"):
 
         try:
-            with open(file_path, "r", encoding="utf-8") as file:
-                lines = file.readlines()
-        except Exception as e:
+            with open(file_path, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception as err:
+            utils.error(f"run_batch_prediction: Failed to read TXT ({err}).", LOG)
             print("Error reading TXT file.")
-            log(f"Error reading TXT file: {e}", level="ERROR", **LOG)
-            return
+            return None
 
         for idx, line in enumerate(lines):
             review = line.strip()
 
-            if review == "":
-                continue  # skip blank lines
+            if not review:
+                continue  # Skip blank lines
 
             result = predict_review(review, model_name)
 
             if result is None:
-                print(f"Line {idx+1}: Prediction failed. Check logs.")
+                print(f"Line {idx+1}: Prediction failed.")
+                utils.error("run_batch_prediction: Prediction returned None.", LOG)
                 continue
 
-            conf = result['confidence'] if result['confidence'] is not None else "N/A"
-            print(f"Line {idx+1}: {result['sentiment']} (Confidence={conf})")
+            sentiment = result["sentiment"]
+            conf = result["confidence"] if result["confidence"] is not None else "N/A"
+
+            print(f"Line {idx+1}: {sentiment} (Confidence={conf})")
 
             results.append({
                 "original_text": review,
                 "cleaned_text": result["cleaned_text"],
-                "sentiment": result["sentiment"],
+                "sentiment": sentiment,
                 "confidence": result["confidence"]
             })
 
+    
+    # Unsupported file extension
     else:
-        print("Unsupported file type. Use .txt or .csv files.")
-        log(f"Unsupported batch file type: {file_path}", level="ERROR", **LOG)
-        return
+        utils.error(f"run_batch_prediction: Unsupported file type → {file_path}", LOG)
+        print("Unsupported file type. Use .txt or .csv.")
+        return None
 
+    
     # Save results
-    timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_filename = os.path.join(
-    OUTPUT_DIR,
-    f"batch_{model_name}_{timestamp}.csv"
+        OUTPUT_DIR,
+        f"batch_{model_name}_{timestamp}.csv"
     )
 
     save_batch_results(results, output_filename)
 
+    utils.info(
+        f"run_batch_prediction: Completed. {len(results)} reviews processed.",
+        LOG
+    )
+
     print(f"\nBatch prediction complete! Saved results to:\n{output_filename}")
-    log(f"Batch prediction completed. {len(results)} reviews processed.", level="INFO", **LOG)
 
     return output_filename
 
-
 def save_batch_results(results, filename):
+    """
+    Save batch prediction results to a CSV file.
+
+    Args:
+        results (list of dict): Each dict contains:
+            - original_text
+            - cleaned_text
+            - sentiment
+            - confidence
+        filename (str): Output CSV path.
+
+    Returns:
+        bool: True on success, False on failure.
+    """
+
+    # If empty, warn but still write an empty file
+    if not results:
+        utils.info("save_batch_results: No results to save (writing empty file).", LOG)
+
     try:
         df = pd.DataFrame(results)
         df.to_csv(filename, index=False)
-        log(f"Batch results saved successfully: {filename}", level="INFO", **LOG)
-    except Exception as e:
-        log(f"Error saving batch results: {e}", level="ERROR", **LOG)
+        utils.info(f"save_batch_results: Saved → {filename}", LOG)
+        return True
 
-if __name__ == "__main__":
-     while True:
+    except Exception as err:
+        utils.error(f"save_batch_results: Failed to save file ({err}).", LOG)
+        return False
+
+def main():
+    """
+    CLI interface for running sentiment predictions using trained models.
+    
+    Workflow:
+        1. Choose model (LR or NB)
+        2. Choose prediction mode (single or batch)
+        3. Run predictions
+    """
+
+    while True:
         print("\n===== Steam Review Sentiment Analyzer =====")
         print("Choose a model:")
         print("1. Logistic Regression")
@@ -232,21 +312,20 @@ if __name__ == "__main__":
 
         choice = input("Enter your choice: ").strip()
 
-        match choice:
-            case "1":
-                selected_model = "logistic_regression"
-            case "2":
-                selected_model = "naive_bayes"
-            case "3":
-                print("Exiting program.")
-                break
-            case _:
-                print("Invalid option. Try again.")
-                continue
+        if choice == "1":
+            model_name = "logistic_regression"
+        elif choice == "2":
+            model_name = "naive_bayes"
+        elif choice == "3":
+            print("Exiting program.")
+            return
+        else:
+            print("Invalid option. Try again.")
+            continue
 
-        # Model selected — now choose prediction mode
+        # Model chosen - choose mode
         while True:
-            print(f"\nModel selected: {selected_model.replace('_',' ').title()}")
+            print(f"\nModel selected: {model_name.replace('_',' ').title()}")
             print("Choose prediction mode:")
             print("1. Single Review Prediction")
             print("2. Batch Prediction from File")
@@ -254,17 +333,19 @@ if __name__ == "__main__":
 
             mode_choice = input("Enter your choice: ").strip()
 
-            match mode_choice:
-                case "1":
-                    run_single_prediction_loop(selected_model)
+            if mode_choice == "1":
+                run_single_prediction_loop(model_name)
 
-                case "2":
-                    run_batch_prediction(selected_model)
+            elif mode_choice == "2":
+                run_batch_prediction(model_name)
 
-                case "3":
-                    print("Returning to model selection...")
-                    break
+            elif mode_choice == "3":
+                print("Returning to model selection...")
+                break
 
-                case _:
-                    print("Invalid option. Try again.")
+            else:
+                print("Invalid option. Try again.")
 
+
+if __name__ == "__main__":
+    main()
